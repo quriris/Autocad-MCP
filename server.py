@@ -997,6 +997,22 @@ LEAN_TOOL_NAMES = frozenset(
         # tool, so TOOL_PACKS=core keeps it; with the four architectural ones
         # above, lean is 65. The takeoffs are `plant`-pack, full-profile work.
         "drawing_understand",
+        # nanoCAD СПДС (SECTION 28) - the whole `spds` pack: a lean nanoCAD
+        # client draws formats, stamps, leaders, breaks and level marks, and
+        # had no way to reach them (measured: TOOL_PROFILE=lean hid every
+        # spds_* tool). `spds`-pack tools, so TOOL_PACKS=core hides them;
+        # lean is 76.
+        "spds_status",
+        "spds_plugin_load",
+        "spds_list",
+        "spds_get",
+        "spds_set",
+        "spds_format_create",
+        "spds_leader_create",
+        "spds_break_create",
+        "spds_clone",
+        "spds_create",
+        "spds_level_mark_create",
     }
 )
 

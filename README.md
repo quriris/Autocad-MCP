@@ -370,7 +370,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 |---|---|---|
 | `AUTOCAD_MCP_BACKEND` | `auto` | `auto`, `com`, or `ezdxf` |
 | `CAD_PROGID` | `AutoCAD.Application` | COM ProgID the live backend attaches to |
-| `TOOL_PROFILE` | `full` | `lean` (65 curated tools, 55 with `TOOL_PACKS=core`) or `full` |
+| `TOOL_PROFILE` | `full` | `lean` (76 curated tools, 55 with `TOOL_PACKS=core`) or `full` |
 | `TOOL_PACKS` | `all` | Vertical packs to advertise: `core,pid,settings,mech,arch,plant` (`core` always on) |
 | `DISCOVERY_MODE` | `off` | `search` replaces the catalog with `search_tools` + `call_tool` |
 | `ENABLE_3D` | `false` | Expose the opt-in `solid_*` tools (COM) |
