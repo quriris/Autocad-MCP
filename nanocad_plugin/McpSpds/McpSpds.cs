@@ -73,7 +73,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.3";
+        public const string PluginVersion = "0.2.4";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -390,9 +390,30 @@ namespace McpSpds
                 n.Arrow = (Arrows)Enum.Parse(typeof(Arrows), ar.GetString() ?? "Arrow", true);
             n.DbEntity.AddToCurrentDocument();
             ApplyScale(n, a);
+            var points = new List<Point3d>();
             if (a.TryGetProperty("targets", out var targets))
                 foreach (var t in targets.EnumerateArray())
+                {
+                    points.Add(P(t));
                     n.Leader.AddSegment(n.Origin, P(t));
+                }
+            // AddSegment makes the leader lines but leaves each arrow on the
+            // shelf (measured, nanoCAD 24.1: Leader1X/Y == Origin); the arrow
+            // point is the LeaderN X/Y parameter, so write it.
+            if (points.Count > 0)
+            {
+                Commit(n);
+                var bag = n.DbObject.ObjectProperties;
+                for (int i = 0; i < points.Count; i++)
+                {
+                    var px = bag.GetProperty("Leader" + (i + 1) + "X");
+                    var py = bag.GetProperty("Leader" + (i + 1) + "Y");
+                    if (px == null || py == null)
+                        break;
+                    px.SetValue(points[i].X);
+                    py.SetValue(points[i].Y);
+                }
+            }
             Commit(n);
             ApplyProps(n, a.TryGetProperty("props", out var p) ? p : default);
             Commit(n);
