@@ -26,23 +26,89 @@ using System.Text.Json;
 using Multicad;
 using Multicad.DatabaseServices;
 using Multicad.Geometry;
-using Multicad.Runtime;
 using Multicad.Symbols;
+
+// nanoCAD's own .NET loader (NETLOAD) registers commands declared with the
+// platform attribute, Teigha.Runtime.CommandMethod — the MultiCAD one alone was
+// never registered (measured: nanoCAD 24.1 never answered MCP_SPDS).
+[assembly: Teigha.Runtime.ExtensionApplication(typeof(McpSpds.App))]
+[assembly: Teigha.Runtime.CommandClass(typeof(McpSpds.Commands))]
 
 namespace McpSpds
 {
+    // Runs once when NETLOAD loads the assembly: leaves a marker the server
+    // reads to tell "never loaded" from "loaded but the command did not run".
+    public class App : Teigha.Runtime.IExtensionApplication
+    {
+        public void Initialize()
+        {
+            try
+            {
+                Directory.CreateDirectory(Commands.Dir);
+                File.WriteAllText(
+                    Path.Combine(Commands.Dir, "loaded.json"),
+                    JsonSerializer.Serialize(new Dictionary<string, object>
+                    {
+                        ["plugin_version"] = Commands.PluginVersion,
+                        ["loaded_at"] = DateTime.Now.ToString("s", CultureInfo.InvariantCulture),
+                        ["runtime"] = Environment.Version.ToString(),
+                    }),
+                    new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                Commands.Log("Initialize marker: " + ex);
+            }
+            try
+            {
+                HostMgd.ApplicationServices.Application.DocumentManager.MdiActiveDocument?.Editor
+                    .WriteMessage("\nMcpSpds " + Commands.PluginVersion + " загружен (команда MCP_SPDS).\n");
+            }
+            catch { }
+        }
+
+        public void Terminate() { }
+    }
+
     public class Commands
     {
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.1.1";
 
-        static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
+        internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
-        [CommandMethod("MCP_SPDS", CommandFlags.Modal)]
+        internal static void Log(string message)
+        {
+            try
+            {
+                Directory.CreateDirectory(Dir);
+                File.AppendAllText(Path.Combine(Dir, "plugin.log"),
+                    DateTime.Now.ToString("s", CultureInfo.InvariantCulture) + " " + message + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch { }
+        }
+
+        [Teigha.Runtime.CommandMethod("MCP_SPDS", Teigha.Runtime.CommandFlags.Modal)]
         public static void McpSpds()
+        {
+            try
+            {
+                Run();
+            }
+            catch (Exception ex)
+            {
+                Log("MCP_SPDS: " + ex);
+            }
+        }
+
+        static void Run()
         {
             string request = Path.Combine(Dir, "request.json");
             if (!File.Exists(request))
+            {
+                Log("MCP_SPDS ran with no request.json in " + Dir);
                 return;
+            }
             string text;
             try
             {

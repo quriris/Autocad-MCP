@@ -149,3 +149,18 @@ def test_spds_tools_form_their_own_pack():
         "spds_break_create",
         "spds_clone",
     }
+
+
+def test_wait_loaded_reads_the_plugins_marker(tmp_path):
+    (tmp_path / "loaded.json").write_text('{"plugin_version": "0.1.1"}', encoding="utf-8")
+    assert sb.wait_loaded(tmp_path, timeout=0.1) == {"plugin_version": "0.1.1"}
+
+
+def test_wait_loaded_gives_up_when_nanocad_never_loaded_it(tmp_path):
+    assert sb.wait_loaded(tmp_path, timeout=0.05, sleep=lambda s: None) is None
+
+
+def test_log_tail_returns_the_last_lines(tmp_path):
+    (tmp_path / "plugin.log").write_text("\n".join(f"line {i}" for i in range(30)), "utf-8")
+    assert sb.log_tail(tmp_path, lines=2) == "line 28\nline 29"
+    assert sb.log_tail(tmp_path / "missing") == ""

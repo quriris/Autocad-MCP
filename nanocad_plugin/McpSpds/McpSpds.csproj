@@ -21,5 +21,13 @@
       <HintPath>$(NanoCadDir)\NanoSPDS\bin\mapibasetypes.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="hostdbmgd">
+      <HintPath>$(NanoCadDir)\bin\hostdbmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="hostmgd">
+      <HintPath>$(NanoCadDir)\bin\hostmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>

@@ -69,6 +69,12 @@ async def run(report: dict) -> None:
     except Exception:
         ping = await step("spds_plugin_load", lambda: b.spds_plugin_load())
     if ping is None:
+        from backends import spds_bridge
+
+        marker = spds_bridge.loaded_marker()
+        report["bridge_dir"] = str(spds_bridge.bridge_dir())
+        report["loaded_marker"] = marker.read_text("utf-8") if marker.is_file() else None
+        report["plugin_log"] = spds_bridge.log_tail(lines=40)
         return
 
     # 2. read-only on the open drawing

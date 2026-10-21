@@ -130,6 +130,37 @@ def call(doc, op: str, args: dict | None = None, timeout: float = 30.0, **wait_k
     return reply.get("result")
 
 
+def loaded_marker(folder: Path | None = None) -> Path:
+    """Written by the plugin's IExtensionApplication.Initialize on every load."""
+    return (folder or bridge_dir()) / "loaded.json"
+
+
+def log_tail(folder: Path | None = None, lines: int = 15) -> str:
+    """The end of the plugin's own log (errors inside MCP_SPDS land there)."""
+    path = (folder or bridge_dir()) / "plugin.log"
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+    except OSError:
+        return ""
+
+
+def wait_loaded(
+    folder: Path | None = None, timeout: float = 15.0, sleep=time.sleep, clock=time.monotonic
+) -> dict | None:
+    """The load marker's content once it appears, or None after ``timeout``."""
+    marker = loaded_marker(folder)
+    deadline = clock() + timeout
+    while True:
+        if marker.is_file():
+            try:
+                return json.loads(marker.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+        if clock() >= deadline:
+            return None
+        sleep(0.1)
+
+
 def netload(doc, path: Path | None = None) -> str:
     """Ask nanoCAD to load the plugin; returns the path it was asked to load.
 
@@ -140,6 +171,10 @@ def netload(doc, path: Path | None = None) -> str:
     if not target.is_file():
         raise FileNotFoundError(f"plugin not found: {target}")
     _require_idle(doc)
+    try:
+        loaded_marker().unlink()
+    except OSError:
+        pass
     try:
         old = int(doc.GetVariable("FILEDIA"))
     except Exception:

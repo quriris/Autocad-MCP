@@ -6988,8 +6988,22 @@ class ComBackend(AutoCADBackend):
 
         self._require_nanocad()
         loaded = await self._run(lambda: spds_bridge.netload(_acad_doc(), path))
-        ping = await self.spds_call("ping", timeout=15.0)
-        return {"ok": True, "loaded": loaded, **(ping or {})}
+        marker = await asyncio.to_thread(spds_bridge.wait_loaded)
+        if marker is None:
+            raise RuntimeError(
+                f"nanoCAD did not load {loaded}: its load marker never appeared. Look at "
+                "nanoCAD's command line — a security question about the application, or a "
+                "load error, is shown there. Load it by hand with NETLOAD to see the message."
+            )
+        try:
+            ping = await self.spds_call("ping", timeout=15.0)
+        except TimeoutError as exc:
+            tail = spds_bridge.log_tail()
+            raise RuntimeError(
+                f"The plugin loaded ({marker}) but the MCP_SPDS command did not answer."
+                + (f" Plugin log:\n{tail}" if tail else " Type MCP_SPDS in nanoCAD to see why.")
+            ) from exc
+        return {"ok": True, "loaded": loaded, "marker": marker, **(ping or {})}
 
     async def system_status(self) -> dict:
         tx_active = self._transaction_active
