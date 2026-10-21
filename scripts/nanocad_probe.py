@@ -120,14 +120,13 @@ REQUIRED = {
         "AddXline",
         "AddRegion",
         "AddRaster",
-        "AddWipeout",
         "InsertBlock",
         "AttachExternalReference",
         "AddAttribute",
-        "AddPViewport",
         "Count",
         "Item",
     ],
+    "PaperSpace": ["AddPViewport", "AddLine", "InsertBlock"],
     "Linetypes": ["Load", "Item", "Count", "Add"],
     "Layers": ["Add", "Item", "Count"],
     "Layout": [
@@ -216,6 +215,7 @@ def surface(report: dict) -> object | None:
         doc = app.ActiveDocument
         objects["Document"] = doc
         objects["ModelSpace"] = doc.ModelSpace
+        objects["PaperSpace"] = doc.PaperSpace
         objects["Linetypes"] = doc.Linetypes
         objects["Layers"] = doc.Layers
         objects["Layout"] = doc.ActiveLayout
@@ -269,7 +269,22 @@ def surface(report: dict) -> object | None:
         extra["lin_files"] = lins
     except Exception as exc:
         extra["support_path"] = "ERROR " + _err(exc)
-    for var in ("ACADVER", "MEASUREMENT", "FILEDIA", "BACKGROUNDPLOT", "DWGPREFIX"):
+    for var in (
+        "ACADVER",
+        "MEASUREMENT",
+        "INSUNITS",
+        "LUNITS",
+        "FILEDIA",
+        "BACKGROUNDPLOT",
+        "DWGPREFIX",
+        "DIMSCALE",
+        "DIMTXT",
+        "DIMASZ",
+        "DIMSTYLE",
+        "TEXTSTYLE",
+        "LTSCALE",
+        "CELTSCALE",
+    ):
         try:
             extra.setdefault("sysvars", {})[var] = str(objects["Document"].GetVariable(var))
         except Exception as exc:
@@ -331,6 +346,10 @@ async def smoke(report: dict) -> None:
         "layer_create AXES CENTER", lambda: b.layer_create("AXES", color=1, linetype="CENTER")
     )
     await step("linetype_load DASHED", lambda: b.linetype_load("DASHED"))
+    await step("linetype_load ACAD_ISO04W100", lambda: b.linetype_load("ACAD_ISO04W100"))
+    await step("linetype_load native осевая", lambda: b.linetype_load("осевая"))
+    await step("linetype_load GOST 2.303 4", lambda: b.linetype_load("ГОСТ 2.303 4"))
+    await step("linetype_list", lambda: b.linetype_list())
     await step("line", lambda: b.entity_create_line(0, 0, 200, 0))
     await step("line on AXES", lambda: b.entity_create_line(0, -20, 0, 120, layer="AXES"))
     await step(
@@ -348,6 +367,10 @@ async def smoke(report: dict) -> None:
         lambda: b.entity_create_hatch(
             "ANSI31", [[150, 10], [190, 10], [190, 40], [150, 40]], scale=1.0
         ),
+    )
+    await step(
+        "hatch GOST_GROUND",
+        lambda: b.entity_create_hatch("GOST_GROUND", [[150, 50], [190, 50], [190, 80], [150, 80]]),
     )
     await step("dimension_linear", lambda: b.dimension_linear(0, 0, 200, 0, 100, -15))
     await step(

@@ -61,6 +61,107 @@ def window_title_keyword() -> str:
 
 # -- linetypes ---------------------------------------------------------------
 
+#: AutoCAD's acad/acadiso.lin names -> the same definition's name in nanoCAD's
+#: ncad.lin / ncadiso.lin (read from a nanoCAD 24.1 install). nanoCAD ships the
+#: whole AutoCAD set under Russian names, so a tool asking for CENTER gets the
+#: seat's own "осевая" definition loaded *as* CENTER — every tool, critique and
+#: layer preset that names AutoCAD linetypes keeps working unchanged.
+NANOCAD_LINETYPE_ALIASES: dict[str, str] = {
+    "BORDER": "рант",
+    "BORDER2": "рант2",
+    "BORDERX2": "рантX2",
+    "CENTER": "осевая",
+    "CENTER2": "осевая2",
+    "CENTERX2": "осеваяX2",
+    "DASHDOT": "штрихпунктирная",
+    "DASHDOT2": "штрихпунктирная2",
+    "DASHDOTX2": "штрихпунктирнаяX2",
+    "DASHED": "штриховая",
+    "DASHED2": "штриховая2",
+    "DASHEDX2": "штриховаяX2",
+    "DIVIDE": "линия_сгиба",
+    "DIVIDE2": "линия_сгиба2",
+    "DIVIDEX2": "линия_сгибаX2",
+    "DOT": "пунктирная",
+    "DOT2": "пунктирная2",
+    "DOTX2": "пунктирнаяX2",
+    "HIDDEN": "невидимая",
+    "HIDDEN2": "невидимая2",
+    "HIDDENX2": "невидимаяX2",
+    "PHANTOM": "фантом",
+    "PHANTOM2": "фантом2",
+    "PHANTOMX2": "фантомX2",
+    "FENCELINE1": "ограждение1",
+    "FENCELINE2": "ограждение2",
+    "TRACKS": "пути",
+    "BATTING": "изоляция",
+    "HOT_WATER_SUPPLY": "горячая_вода",
+    "GAS_LINE": "газопровод",
+    "ZIGZAG": "зигзаг",
+    **{f"ACAD_ISO{n:02d}W100": f"NCAD_ISO{n:02d}W100" for n in range(2, 16)},
+}
+
+
+def read_lin_text(path: Path) -> str:
+    """A .lin file's text: nanoCAD's own are cp1251, its GOST file is UTF-8."""
+    raw = path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw[3:].decode("utf-8", errors="replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1251", errors="replace")
+
+
+def parse_lin(text: str) -> dict[str, tuple[str, str, str]]:
+    """``{name.lower(): (name, description, definition line)}`` of a .lin text.
+
+    A definition is the ``*NAME,description`` header plus the ``A,...`` line
+    after it. Comments (``;;``) and blank lines are skipped.
+    """
+    out: dict[str, tuple[str, str, str]] = {}
+    lines = [ln.rstrip("\r\n") for ln in text.splitlines()]
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("*"):
+            name, _, desc = line[1:].partition(",")
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or lines[j].strip().startswith(";")):
+                j += 1
+            if j < len(lines) and not lines[j].strip().startswith("*"):
+                out[name.strip().lower()] = (name.strip(), desc.strip(), lines[j].strip())
+                i = j
+        i += 1
+    return out
+
+
+def compat_linetype_file(name: str, lin_files: Iterable[str], out_dir: Path) -> str | None:
+    """A one-entry .lin defining AutoCAD's ``name`` with nanoCAD's definition.
+
+    None when ``name`` is not an AutoCAD name we know or no seat file carries
+    the nanoCAD counterpart. The file is rewritten on every call: it is tiny,
+    and a stale copy from another install must never win.
+    """
+    native = NANOCAD_LINETYPE_ALIASES.get(name.upper())
+    if native is None:
+        return None
+    for lin_file in lin_files:
+        try:
+            defs = parse_lin(read_lin_text(Path(lin_file)))
+        except OSError:
+            continue
+        hit = defs.get(native.lower())
+        if hit is None:
+            continue
+        _, desc, definition = hit
+        out_dir.mkdir(parents=True, exist_ok=True)
+        target = out_dir / f"{name.upper()}.lin"
+        content = f"*{name.upper()},{desc}\r\n{definition}\r\n"
+        target.write_bytes(content.encode("cp1251", errors="replace"))
+        return str(target)
+    return None
+
 
 def _autocad_lin_file(measurement: int | None) -> str:
     return "acad.lin" if measurement == 0 else "acadiso.lin"
@@ -92,23 +193,33 @@ def _lin_files_on(folders: Iterable[Path]) -> list[str]:
 def linetype_file_candidates(
     measurement: int | None,
     support_folders: Iterable[Path] = (),
+    name: str | None = None,
+    compat_dir: Path | None = None,
 ) -> list[str]:
     """Linetype files to try, in order, for a name the caller did not place.
 
     AutoCAD keeps its historical single answer (``acadiso.lin`` on a metric
-    drawing, ``acad.lin`` on an imperial one). nanoCAD tries the same names
-    first — some installs copy them for compatibility — then every ``.lin``
-    on its support path. ``CAD_LIN_FILE`` always goes first.
+    drawing, ``acad.lin`` on an imperial one). nanoCAD tries, after
+    ``CAD_LIN_FILE``: a compat file carrying AutoCAD's ``name`` with the
+    seat's own definition (CENTER from "осевая"), the seat's ``.lin`` files
+    (for its native names such as "осевая" or "ГОСТ 2.303 4"), and AutoCAD's
+    file names last, for a seat where someone copied them in.
     """
     out: list[str] = []
     override = os.environ.get("CAD_LIN_FILE", "").strip()
     if override:
         out.append(override)
-    out.append(_autocad_lin_file(measurement))
-    if is_nanocad():
-        other = "acadiso.lin" if out[-1] == "acad.lin" else "acad.lin"
-        out.append(other)
-        out.extend(_lin_files_on(support_folders))
+    if not is_nanocad():
+        out.append(_autocad_lin_file(measurement))
+    else:
+        seat_files = _lin_files_on(support_folders)
+        if name and compat_dir is not None:
+            compat = compat_linetype_file(name, seat_files, compat_dir)
+            if compat:
+                out.append(compat)
+        out.extend(seat_files)
+        first = _autocad_lin_file(measurement)
+        out.extend([first, "acad.lin" if first == "acadiso.lin" else "acadiso.lin"])
     deduped: list[str] = []
     for item in out:
         if item.lower() not in {d.lower() for d in deduped}:
@@ -139,6 +250,22 @@ def load_linetype_from_candidates(
         + "; ".join(failures)
         + "). Pass file=<path to a .lin> or set CAD_LIN_FILE."
     )
+
+
+# -- hatch patterns ------------------------------------------------------------
+
+
+def hatch_pattern_types() -> tuple[int, ...]:
+    """``AddHatch`` PatternType values to try, in order.
+
+    ActiveX numbers them UserDefined=0, PreDefined=1, CustomDefined=2. AutoCAD
+    accepts 0 with a named pattern and the backend has always passed it, so
+    AutoCAD keeps exactly that. nanoCAD (TeighaX) is strict and answers
+    "Bad name for Hatch pattern" to 0 + ANSI31 (measured, nanoCAD 24.1): it
+    gets PreDefined for patterns in ncad/ncadiso.pat, then CustomDefined for a
+    pattern in its own .pat file on the support path.
+    """
+    return (1, 2) if is_nanocad() else (0,)
 
 
 # -- paper media -------------------------------------------------------------

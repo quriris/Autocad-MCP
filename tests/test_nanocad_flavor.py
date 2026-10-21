@@ -7,6 +7,8 @@ cases pin that selecting nanoCAD changed nothing for an AutoCAD seat.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import config
@@ -72,13 +74,14 @@ def test_autocad_keeps_its_single_measurement_file():
     assert cf.linetype_file_candidates(0) == ["acad.lin"]
 
 
-def test_nanocad_tries_the_support_path_after_autocads_names(nanocad, tmp_path):
+def test_nanocad_tries_its_own_files_before_autocads_names(nanocad, tmp_path):
+    """Measured on nanoCAD 24.1: acadiso.lin / acad.lin are absent ("File access error")."""
     (tmp_path / "ncad.lin").write_text("*X,x\nA,1,-1\n")
     (tmp_path / "ncadiso.lin").write_text("*X,x\nA,1,-1\n")
     out = cf.linetype_file_candidates(1, [tmp_path])
-    assert out[:2] == ["acadiso.lin", "acad.lin"]
     # metric file first, full paths so the CAD need not resolve a bare name
-    assert out[2:] == [str(tmp_path / "ncadiso.lin"), str(tmp_path / "ncad.lin")]
+    assert out[:2] == [str(tmp_path / "ncadiso.lin"), str(tmp_path / "ncad.lin")]
+    assert out[2:] == ["acadiso.lin", "acad.lin"]
 
 
 def test_lin_override_goes_first(nanocad, monkeypatch):
@@ -163,3 +166,86 @@ def test_nanocad_matches_media_by_size(nanocad):
 
 def test_nanocad_does_not_take_the_rotated_sheet(nanocad):
     assert cf.match_media(A3, ["ISO A3 (297.00 x 420.00 мм)"]) is None
+
+
+# -- AutoCAD linetype names on nanoCAD ---------------------------------------
+
+NCAD_LIN = (
+    ";; nanoCAD linetypes\r\n"
+    "*осевая,Осевая ____ _ ____ _\r\n"
+    "A,31.75,-6.35,6.35,-6.35\r\n"
+    "\r\n"
+    "*невидимая,Невидимая __ __ __\r\n"
+    "A,6.35,-3.175\r\n"
+    "*NCAD_ISO04W100,ISO ш/пункт. (дл. штрихи)\r\n"
+    "A,24,-3,0,-3\r\n"
+)
+
+
+@pytest.fixture
+def seat_lin(tmp_path):
+    """A nanoCAD-style cp1251 linetype file, as the seat ships them."""
+    folder = tmp_path / "shx"
+    folder.mkdir()
+    (folder / "ncadiso.lin").write_bytes(NCAD_LIN.encode("cp1251"))
+    return folder
+
+
+def test_parse_lin_reads_cp1251_and_skips_comments(seat_lin):
+    defs = cf.parse_lin(cf.read_lin_text(seat_lin / "ncadiso.lin"))
+    assert defs["осевая"] == ("осевая", "Осевая ____ _ ____ _", "A,31.75,-6.35,6.35,-6.35")
+    assert set(defs) == {"осевая", "невидимая", "ncad_iso04w100"}
+
+
+def test_read_lin_text_handles_utf8_with_bom(tmp_path):
+    path = tmp_path / "GOST 2.303-68.lin"
+    path.write_bytes(b"\xef\xbb\xbf" + "*ГОСТ 2.303 4,Штриховая\r\nA,6,-2\r\n".encode())
+    assert "ГОСТ 2.303 4" in [v[0] for v in cf.parse_lin(cf.read_lin_text(path)).values()]
+
+
+def test_center_is_loaded_as_center_from_the_seats_osevaya(nanocad, seat_lin, tmp_path):
+    out = tmp_path / "compat"
+    candidates = cf.linetype_file_candidates(1, [seat_lin], name="CENTER", compat_dir=out)
+    compat = Path(candidates[0])
+    assert compat.parent == out
+    text = compat.read_bytes().decode("cp1251")
+    assert text.startswith("*CENTER,Осевая")
+    assert "A,31.75,-6.35,6.35,-6.35" in text
+    # the seat's own files follow, AutoCAD's names last
+    assert candidates[1] == str(seat_lin / "ncadiso.lin")
+    assert candidates[-2:] == ["acadiso.lin", "acad.lin"]
+
+
+def test_acad_iso_names_map_to_ncad_iso(nanocad, seat_lin, tmp_path):
+    path = cf.compat_linetype_file("ACAD_ISO04W100", [str(seat_lin / "ncadiso.lin")], tmp_path)
+    assert path is not None
+    assert Path(path).read_bytes().decode("cp1251").startswith("*ACAD_ISO04W100,")
+
+
+def test_native_and_unknown_names_get_no_compat_file(nanocad, seat_lin, tmp_path):
+    files = [str(seat_lin / "ncadiso.lin")]
+    assert cf.compat_linetype_file("осевая", files, tmp_path) is None
+    assert cf.compat_linetype_file("NOT_A_LINETYPE", files, tmp_path) is None
+
+
+def test_alias_missing_from_the_seat_gives_no_compat_file(nanocad, seat_lin, tmp_path):
+    assert cf.compat_linetype_file("PHANTOM", [str(seat_lin / "ncadiso.lin")], tmp_path) is None
+
+
+def test_autocad_never_builds_compat_files(seat_lin, tmp_path):
+    out = tmp_path / "compat"
+    assert cf.linetype_file_candidates(1, [seat_lin], name="CENTER", compat_dir=out) == [
+        "acadiso.lin"
+    ]
+    assert not out.exists()
+
+
+# -- hatch pattern type ------------------------------------------------------
+
+
+def test_autocad_keeps_pattern_type_zero():
+    assert cf.hatch_pattern_types() == (0,)
+
+
+def test_nanocad_uses_predefined_then_custom(nanocad):
+    assert cf.hatch_pattern_types() == (1, 2)

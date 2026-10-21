@@ -525,7 +525,14 @@ def _load_linetype_default(doc, name: str) -> str:
     except Exception as exc:
         log.debug("MEASUREMENT unreadable on nanoCAD (%s); assuming metric", exc)
         measurement = 1
-    candidates = cad_flavor.linetype_file_candidates(measurement, _support_folders())
+    import tempfile
+
+    candidates = cad_flavor.linetype_file_candidates(
+        measurement,
+        _support_folders(),
+        name=name,
+        compat_dir=Path(tempfile.gettempdir()) / "acadmcp-nanocad-lin",
+    )
     try:
         return cad_flavor.load_linetype_from_candidates(
             lambda f: doc.Linetypes.Load(name, f), candidates, _com_error_description
@@ -4874,6 +4881,21 @@ class ComBackend(AutoCADBackend):
                 for column_index, value in enumerate(row):
                     table.SetText(row_index, column_index, value)
                     table.SetCellTextHeight(row_index, column_index, layout.text_height)
+            # The table's own default layer ("TEXT") is ours, not the caller's,
+            # and a fresh drawing does not have it: live ActiveX refuses the
+            # assignment ("Key not found", seen on nanoCAD 24.1) where ezdxf
+            # creates it. Ensure it first, as every other draw path does.
+            if layer is not None:
+                try:
+                    layers = _acad_doc().Layers
+                    try:
+                        layers.Item(layer)
+                    except Exception:
+                        layers.Add(layer)
+                except Exception as exc:
+                    # Best effort: if the layer cannot be ensured, the
+                    # assignment below reports the real error as before.
+                    log.debug("table layer %r not ensured: %s", layer, exc)
             _apply_entity_attrs(table, layer, None, None)
             _regen()
             info = _entity_info(table)
@@ -4955,8 +4977,19 @@ class ComBackend(AutoCADBackend):
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
-            # acPatternTypePreDefined = 0
-            hatch = mspace.AddHatch(0, pattern, False)
+            # PatternType per CAD (see cad_flavor.hatch_pattern_types): AutoCAD
+            # keeps the 0 it has always been given; nanoCAD needs PreDefined.
+            hatch = None
+            last_exc: Exception | None = None
+            for pattern_type in cad_flavor.hatch_pattern_types():
+                try:
+                    hatch = mspace.AddHatch(pattern_type, pattern, False)
+                    break
+                except Exception as exc:
+                    last_exc = exc
+            if hatch is None:
+                assert last_exc is not None
+                raise last_exc
             hatch.PatternScale = float(scale)
             hatch.PatternAngle = deg2rad(angle)
             # Build outer loop as a temporary lwpolyline
