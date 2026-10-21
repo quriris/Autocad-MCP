@@ -24,7 +24,7 @@ import config
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from security import sanitize_macro_argument, sanitize_symbol_name, validate_path
 
-from . import ocs
+from . import cad_flavor, ocs
 from .base import (
     AutoCADBackend,
     BlockInfo,
@@ -506,7 +506,42 @@ def _ensure_linetype_loaded(name: str) -> None:
     existing = {doc.Linetypes.Item(i).Name.lower() for i in range(doc.Linetypes.Count)}
     if name.lower() in existing:
         return
-    _load_linetype(doc, name, _default_lin_file(doc))
+    _load_linetype_default(doc, name)
+
+
+def _load_linetype_default(doc, name: str) -> str:
+    """Load ``name`` from the seat's default linetype file(s); return the file used.
+
+    AutoCAD: exactly the historical path — one file chosen by MEASUREMENT,
+    errors unchanged. nanoCAD: the candidates from ``cad_flavor`` in order,
+    since its install does not ship AutoCAD's ``acadiso.lin``.
+    """
+    if not cad_flavor.is_nanocad():
+        lin_file = _default_lin_file(doc)
+        _load_linetype(doc, name, lin_file)
+        return lin_file
+    try:
+        measurement = int(doc.GetVariable("MEASUREMENT"))
+    except Exception as exc:
+        log.debug("MEASUREMENT unreadable on nanoCAD (%s); assuming metric", exc)
+        measurement = 1
+    candidates = cad_flavor.linetype_file_candidates(measurement, _support_folders())
+    try:
+        return cad_flavor.load_linetype_from_candidates(
+            lambda f: doc.Linetypes.Load(name, f), candidates, _com_error_description
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"Failed to load linetype '{name}': {exc}") from exc
+
+
+def _support_folders() -> list[Path]:
+    """The live application's support path as folders (empty when unreadable)."""
+    try:
+        support = str(_acad_app().Preferences.Files.SupportPath)
+    except Exception as exc:
+        log.debug("Preferences.Files.SupportPath unreadable: %s", exc)
+        return []
+    return [Path(folder) for folder in support.split(";") if folder]
 
 
 def _apply_entity_attrs(entity, layer: str | None, color: int | None, linetype: str | None):
@@ -1566,7 +1601,7 @@ def _find_autocad_hwnd() -> int | None:
 
     def _enum_cb(hwnd, _):
         title = win32gui.GetWindowText(hwnd)
-        if "AutoCAD" in title and win32gui.IsWindowVisible(hwnd):
+        if cad_flavor.window_title_keyword() in title and win32gui.IsWindowVisible(hwnd):
             result["hwnd"] = hwnd
             return False
         return True
@@ -2232,15 +2267,20 @@ class ComBackend(AutoCADBackend):
                     log.debug("BACKGROUNDPLOT unreadable (%s); plotting as configured", exc)
                 if old_background not in (None, 0):
                     doc.SetVariable("BACKGROUNDPLOT", 0)
-                plotted = doc.Plot.PlotToFile(path, "DWG To PDF.pc3")
+                device = cad_flavor.resolve_plot_device(
+                    cad_flavor.AUTOCAD_PDF_DEVICE,
+                    lambda: doc.ActiveLayout.GetPlotDeviceNames(),
+                )
+                plotted = doc.Plot.PlotToFile(path, device)
                 written = Path(path)
                 if not plotted:
                     return {
                         "ok": False,
                         "path": path,
                         "layout": target,
-                        "error": "PlotToFile returned False: AutoCAD refused the plot "
-                        "(check the layout's plot area and the 'DWG To PDF.pc3' device)",
+                        "error": f"PlotToFile returned False: {cad_flavor.product_name()} "
+                        f"refused the plot (check the layout's plot area and the "
+                        f"{device!r} device)",
                     }
                 if not written.is_file():
                     return {
@@ -4285,10 +4325,17 @@ class ComBackend(AutoCADBackend):
             step = "ConfigName"
             try:
                 target.RefreshPlotDeviceInfo()
-                _set_device(resolved["device"])
+                device = cad_flavor.resolve_plot_device(
+                    resolved["device"], lambda: target.GetPlotDeviceNames()
+                )
+                resolved["device"] = device  # reported back as the device written
+                _set_device(device)
                 target.RefreshPlotDeviceInfo()
-                media = resolved["canonical_media_name"]
                 names = [str(n) for n in (target.GetCanonicalMediaNames() or ())]
+                media = (
+                    cad_flavor.match_media(resolved["canonical_media_name"], names)
+                    or resolved["canonical_media_name"]
+                )
                 if media not in names:
                     nearest = [n for n in names if n.split("_(")[0] == media.split("_(")[0]]
                     raise ValueError(
@@ -5688,8 +5735,11 @@ class ComBackend(AutoCADBackend):
             # The default file follows MEASUREMENT, read on the document; the
             # load itself is ``Linetypes.Load`` (see _load_linetype for why
             # the -LINETYPE macro behind FILEDIA=0 is gone).
-            lin_file = _default_lin_file(doc) if safe_file is None else safe_file
-            _load_linetype(doc, safe_name, lin_file)
+            if safe_file is None:
+                lin_file = _load_linetype_default(doc, safe_name)
+            else:
+                lin_file = safe_file
+                _load_linetype(doc, safe_name, lin_file)
 
             after = {doc.Linetypes.Item(i).Name.lower() for i in range(doc.Linetypes.Count)}
             if safe_name.lower() not in after:
@@ -6899,6 +6949,7 @@ class ComBackend(AutoCADBackend):
                     # GstarCAD/ZWCAD operator reads an "autocad_version" key
                     # naming a product they do not own.
                     "cad_progid": config.settings.cad_progid,
+                    "cad_flavor": config.settings.cad_flavor,
                     "autocad_version": version,
                     "open_documents": doc_count,
                     "active_document": active_doc,
@@ -6922,6 +6973,7 @@ class ComBackend(AutoCADBackend):
                     "backend": "com",
                     "connected": False,
                     "cad_progid": config.settings.cad_progid,
+                    "cad_flavor": config.settings.cad_flavor,
                     "error": str(exc),
                 }
 

@@ -92,19 +92,31 @@ async def _make_backend():
         await b.connect()
         return b
 
-    if backend_env in ("auto", "com"):
+    if backend_env in ("auto", "com", "nanocad"):
+        # "nanocad" is the COM backend attached to nanoCAD (config.cad_progid
+        # defaults to nanoCAD.Application under it). Like "com", an explicit
+        # choice never degrades silently to the headless engine.
+        strict = backend_env in ("com", "nanocad")
         if _WIN32:
             try:
                 from backends.com_backend import ComBackend
 
                 b = ComBackend()
                 await b.connect()
-                log.info("Using COM backend (live AutoCAD control)")
+                log.info(
+                    "Using COM backend (live %s control, %s)",
+                    config.settings.cad_flavor,
+                    config.settings.cad_progid,
+                )
                 return b
             except Exception as exc:
                 log.warning("COM backend init failed (%s)", exc)
-                if backend_env == "com":
-                    raise RuntimeError(f"COM backend requested but failed: {exc}") from exc
+                if strict:
+                    raise RuntimeError(
+                        f"{backend_env} backend requested but failed: {exc}"
+                    ) from exc
+        elif backend_env == "nanocad":
+            raise RuntimeError("nanocad backend requires Windows with nanoCAD installed")
         else:
             log.warning("COM backend requires Windows; falling back to ezdxf")
 

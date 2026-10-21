@@ -9,6 +9,9 @@ from pathlib import Path
 #: CAD this project is developed and tested against.
 DEFAULT_CAD_PROGID = "AutoCAD.Application"
 
+#: ProgID used when ``AUTOCAD_MCP_BACKEND=nanocad`` and ``CAD_PROGID`` is unset.
+NANOCAD_PROGID = "nanoCAD.Application"
+
 #: Default ``MAX_DXF_BYTES``: 512 MB.
 DEFAULT_MAX_DXF_BYTES = 512 * 1024 * 1024
 
@@ -46,8 +49,26 @@ class Settings:
         like a typo we introduced. Never validated against what is actually
         registered on the machine: an unrecognised ProgID is not "invalid", it
         is unverifiable by us, and only AutoCAD is tested.
+
+        Unset under ``AUTOCAD_MCP_BACKEND=nanocad`` it is nanoCAD's ProgID, so
+        choosing the nanoCAD backend can never launch AutoCAD instead.
         """
-        return os.environ.get("CAD_PROGID", "").strip() or DEFAULT_CAD_PROGID
+        explicit = os.environ.get("CAD_PROGID", "").strip()
+        if explicit:
+            return explicit
+        return NANOCAD_PROGID if self.backend == "nanocad" else DEFAULT_CAD_PROGID
+
+    @property
+    def cad_flavor(self) -> str:
+        """``nanocad`` or ``autocad``: whose content names the COM backend uses.
+
+        nanoCAD when the nanoCAD backend is selected or the ProgID names it
+        (``CAD_PROGID=nanoCAD.Application.24.1`` with ``AUTOCAD_MCP_BACKEND=com``
+        is the same seat). Everything else keeps AutoCAD's behaviour exactly.
+        """
+        if self.backend == "nanocad" or "nanocad" in self.cad_progid.lower():
+            return "nanocad"
+        return "autocad"
 
     def __init__(self):
         self.log_level: str = os.environ.get("LOG_LEVEL", "INFO").upper().strip()
