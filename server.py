@@ -11923,8 +11923,9 @@ async def spds_format_create(
     ctx: Context = None,
 ) -> dict:
     """A nanoCAD СПДС format (frame + stamp, ГОСТ Р 21.101) as a real format
-    object, editable in nanoCAD afterwards. The common stamp fields have their
-    own arguments; every other field (Control, Add.text*, Add.subject*,
+    object, editable in nanoCAD afterwards. nanoCAD fills a new stamp from the
+    drawing's existing stamp data; the fields given here are written over it.
+    The common stamp fields have their own arguments; every other field (Control, Add.text*, Add.subject*,
     Role1...) goes in `props` by the name `spds_get` shows. `scale` sets both
     the format's scale and DimScale; leave it out to take the drawing's current
     scale (1:100 in the СПДС template). Returns the new `handle` and its

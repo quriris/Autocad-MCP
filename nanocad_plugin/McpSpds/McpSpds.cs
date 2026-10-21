@@ -73,7 +73,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.2";
+        public const string PluginVersion = "0.2.3";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -368,6 +368,11 @@ namespace McpSpds
             f.Origin = P(a.GetProperty("origin"));
             f.DbEntity.AddToCurrentDocument();
             ApplyScale(f, a);
+            // nanoCAD fills a new format's stamp from the drawing on its first
+            // update, overwriting anything written before it (measured, nanoCAD
+            // 24.1: Designation written at creation was lost, the same write a
+            // moment later stuck). Let that happen first, then write.
+            Commit(f);
             var stamp = ApplyProps(f, a.TryGetProperty("props", out var p) ? p : default);
             Commit(f, stamp.Count > 0);
             return Created(f);
@@ -388,6 +393,7 @@ namespace McpSpds
             if (a.TryGetProperty("targets", out var targets))
                 foreach (var t in targets.EnumerateArray())
                     n.Leader.AddSegment(n.Origin, P(t));
+            Commit(n);
             ApplyProps(n, a.TryGetProperty("props", out var p) ? p : default);
             Commit(n);
             return Created(n);
@@ -405,6 +411,7 @@ namespace McpSpds
                     n.Units.Add(line.GetString() ?? "");
             n.DbEntity.AddToCurrentDocument();
             ApplyScale(n, a);
+            Commit(n);
             ApplyProps(n, a.TryGetProperty("props", out var p) ? p : default);
             Commit(n);
             return Created(n);
@@ -426,6 +433,7 @@ namespace McpSpds
             b.Offset = Num(a, "offset", 0);
             b.DbEntity.AddToCurrentDocument();
             ApplyScale(b, a);
+            Commit(b);
             ApplyProps(b, a.TryGetProperty("props", out var p) ? p : default);
             Commit(b);
             return Created(b);
@@ -445,6 +453,7 @@ namespace McpSpds
             double dx = Num(a, "dx", 0), dy = Num(a, "dy", 0);
             if (dx != 0 || dy != 0)
                 copyEnt.DbEntity.Transform(Matrix3d.Displacement(new Vector3d(dx, dy, 0)));
+            Commit(copyEnt);
             ApplyProps(copyEnt, a.TryGetProperty("props", out var p) ? p : default);
             Commit(copyEnt);
             return Created(copyEnt);
@@ -471,6 +480,7 @@ namespace McpSpds
                 if (p.X != 0 || p.Y != 0)
                     created.DbEntity.Transform(Matrix3d.Displacement(new Vector3d(p.X, p.Y, 0)));
             }
+            Commit(created);
             ApplyProps(created, a.TryGetProperty("props", out var pr) ? pr : default);
             Commit(created);
             return Created(created);
