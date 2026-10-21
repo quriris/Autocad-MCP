@@ -114,6 +114,29 @@ async def run(report: dict) -> None:
             },
         ),
     )
+    if steps[-1]["ok"]:
+        fmt_handle = steps[-1]["result"]["handle"]
+        report["stamp_kept"] = {
+            k: (steps[-1]["result"]["properties"].get(k) or {}).get("value")
+            for k in ("Designation", "Drawing type", "Sheet", "SheetCount")
+        }
+        await step(
+            "project_info of the new format",
+            lambda: b.spds_call("project_info", {"handle": fmt_handle}),
+        )
+        await step(
+            "set Designation again (write-through) and read back",
+            lambda: b.spds_call(
+                "set", {"handle": fmt_handle, "props": {"Designation": "ТЕСТ-002"}}
+            ),
+        )
+        await step(
+            "describe format after set",
+            lambda: b.spds_call("describe", {"handles": [fmt_handle]}),
+        )
+        if steps[-1]["ok"]:
+            props = steps[-1]["result"][0]["properties"]
+            report["designation_after_set"] = (props.get("Designation") or {}).get("value")
     await step(
         "note_position_create scale 1",
         lambda: b.spds_call(
@@ -172,7 +195,7 @@ async def run(report: dict) -> None:
                     "class_id": mark_class,
                     "at": [330, 0, 0],
                     "scale": 1,
-                    "props": {"Text": "+5,500", "Comment": "Пол 2 этажа"},
+                    "props": {"Associative": False, "Text": "+5,500", "Comment": "Пол 2 этажа"},
                 },
             ),
         )
@@ -183,7 +206,7 @@ async def run(report: dict) -> None:
     else:
         report["level_mark_class_id"] = "no level mark in the open drawing"
     await step("list (new drawing)", lambda: b.spds_call("list", {"limit": 100}))
-    await step("zoom extents", lambda: b.view_zoom_extents())
+    await step("zoom to the A3 format", lambda: b.view_zoom_window(-20, -140, 440, 320))
     await step("screenshot", lambda: _shot(b))
     await step("close new drawing", lambda: b.drawing_close(save=False))
 

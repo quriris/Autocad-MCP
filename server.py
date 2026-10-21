@@ -12159,6 +12159,9 @@ async def spds_level_mark_create(
     """
     merged: dict = {}
     if value is not None:
+        # A new mark is associative and its Text read-only until that is off
+        # (measured, nanoCAD 24.1): the order of the writes matters.
+        merged["Associative"] = False
         merged["Text"] = spds_level_text(value)
     if comment is not None:
         merged["Comment"] = comment

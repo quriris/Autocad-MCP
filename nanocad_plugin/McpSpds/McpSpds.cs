@@ -26,6 +26,7 @@ using System.Text.Json;
 using Multicad;
 using Multicad.DatabaseServices;
 using Multicad.Geometry;
+using Multicad.Projects;
 using Multicad.Symbols;
 
 // nanoCAD's own .NET loader (NETLOAD) registers commands declared with the
@@ -72,7 +73,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.1";
+        public const string PluginVersion = "0.2.2";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -178,6 +179,8 @@ namespace McpSpds
                     return Clone(a);
                 case "create":
                     return CreateByClass(a);
+                case "project_info":
+                    return ProjectInfo(a);
                 default:
                     throw new ArgumentException("unknown op '" + op + "'");
             }
@@ -517,10 +520,115 @@ namespace McpSpds
                     ?? throw new ArgumentException("unknown property '" + kv.Name + "'");
                 if (p.IsReadOnly)
                     throw new ArgumentException("property '" + kv.Name + "' is read-only");
-                p.SetValue(FromJson(kv.Value, p.PropertyType));
+                var value = FromJson(kv.Value, p.PropertyType);
+                p.SetValue(value);
+                if (!Same(bag.GetProperty(kv.Name)?.GetValue(), value))
+                    WriteThroughProject(obj, kv.Name, value);
                 changed.Add(kv.Name);
             }
             return changed;
+        }
+
+        // A stamp field bound to the drawing's project data (mode Get /
+        // GetCustom) does not keep a value written on the format: nanoCAD 24.1
+        // reverted Designation and Drawing type. Write the bound node property
+        // (the link name, else the same name) on the object's node and up its
+        // parents, then refresh the object from the node.
+        static void WriteThroughProject(McObject obj, string name, object? value)
+        {
+            if (obj is not McEntity e)
+                return;
+            McObjNode? node = null;
+            try { node = e.DbObject.ProjectNode; } catch { }
+            if (node == null)
+                return;
+            string link = "";
+            try { node.GetPropertyMode(name, ref link); } catch { }
+            string target = string.IsNullOrEmpty(link) ? name : link;
+            McBasePrjNode? current = node;
+            for (int depth = 0; current != null && depth < 6; depth++)
+            {
+                try
+                {
+                    var np = current.ObjectProperties.GetProperty(target);
+                    if (np != null && !np.IsReadOnly)
+                    {
+                        np.SetValue(value);
+                        break;
+                    }
+                }
+                catch (Exception ex) { Log("project write " + target + ": " + ex.Message); }
+                current = current is McObjNode on ? on.Parent : (current as McInsertionNode)?.Parent;
+            }
+            try { node.UpdateLinkedProperties(); } catch { }
+            try { node.UpdateObject(e.DbObject, true); } catch (Exception ex) { Log("UpdateObject: " + ex.Message); }
+        }
+
+        static bool Same(object? a, object? b)
+        {
+            if (a == null || b == null)
+                return a == b;
+            return string.Equals(Convert.ToString(a, CultureInfo.InvariantCulture),
+                Convert.ToString(b, CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        }
+
+        // Diagnostics: how each property of an object is bound to the project.
+        static object ProjectInfo(JsonElement a)
+        {
+            string handle = a.GetProperty("handle").GetString() ?? "";
+            var obj = Resolve(handle);
+            var d = new Dictionary<string, object> { ["handle"] = handle };
+            if (obj is not McEntity e)
+                return d;
+            McObjNode? node = null;
+            try { node = e.DbObject.ProjectNode; } catch (Exception ex) { d["node_error"] = ex.Message; }
+            d["has_node"] = node != null;
+            if (node == null)
+                return d;
+            var modes = new Dictionary<string, object>();
+            foreach (var name in e.DbObject.ObjectProperties.GetNames())
+            {
+                try
+                {
+                    string link = "";
+                    var mode = node.GetPropertyMode(name, ref link);
+                    modes[name] = new[] { mode.ToString(), link };
+                }
+                catch { }
+            }
+            d["modes"] = modes;
+            d["node_props"] = Bag(node);
+            var chain = new List<object>();
+            McBasePrjNode? parent = node.Parent;
+            for (int depth = 0; parent != null && depth < 6; depth++)
+            {
+                chain.Add(new Dictionary<string, object>
+                {
+                    ["class"] = parent.GetType().Name,
+                    ["props"] = Bag(parent),
+                });
+                parent = parent is McInsertionNode ins ? ins.Parent : null;
+            }
+            d["parents"] = chain;
+            return d;
+        }
+
+        static Dictionary<string, object> Bag(McPropertySource src)
+        {
+            var bag = new Dictionary<string, object>();
+            foreach (var kind in new[] { "object", "custom" })
+            {
+                try
+                {
+                    var props = kind == "object" ? src.ObjectProperties : src.CustomProperties;
+                    foreach (var n in props.GetNames())
+                    {
+                        try { bag[kind + ":" + n] = ToJson(props.GetProperty(n)?.GetValue()); } catch { }
+                    }
+                }
+                catch { }
+            }
+            return bag;
         }
 
         static void Commit(McObject obj, bool pushToProject = false)
