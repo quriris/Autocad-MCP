@@ -3,7 +3,7 @@
   "schema_version": 1,
   "package_version": "1.6.0",
   "totals": {
-    "tools": 258,
+    "tools": 259,
     "resources": 8,
     "prompts": 5,
     "groups": 29
@@ -30,7 +30,7 @@
     "premium": 12,
     "sheet": 11,
     "solids": 5,
-    "spds": 11,
+    "spds": 12,
     "styles": 10,
     "system": 7,
     "templates": 2,
@@ -2909,6 +2909,20 @@
       ],
       "annotations": {
         "title": "СПДС: Get Parameters",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "spds_inspect",
+      "group": "spds",
+      "cost": "read",
+      "summary": "Diagnose a СПДС object beyond its parameter list.",
+      "tags": [
+        "query",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Inspect Object",
         "readOnlyHint": true
       }
     },

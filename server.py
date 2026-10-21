@@ -1001,7 +1001,7 @@ LEAN_TOOL_NAMES = frozenset(
         # client draws formats, stamps, leaders, breaks and level marks, and
         # had no way to reach them (measured: TOOL_PROFILE=lean hid every
         # spds_* tool). `spds`-pack tools, so TOOL_PACKS=core hides them;
-        # lean is 76.
+        # lean is 77.
         "spds_status",
         "spds_plugin_load",
         "spds_list",
@@ -1013,6 +1013,7 @@ LEAN_TOOL_NAMES = frozenset(
         "spds_clone",
         "spds_create",
         "spds_level_mark_create",
+        "spds_inspect",
     }
 )
 
@@ -1131,6 +1132,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "spds_clone",
             "spds_create",
             "spds_level_mark_create",
+            "spds_inspect",
         }
     ),
 }
@@ -11766,7 +11768,7 @@ TIPS:
 """
 
 
-# ── SECTION 28: nanoCAD СПДС Objects (11 tools) ─────────────────────────────
+# ── SECTION 28: nanoCAD СПДС Objects (12 tools) ─────────────────────────────
 #
 # Formats with their stamp, leaders, breaks, level marks... are MultiCAD
 # objects: plain ActiveX sees them as anonymous entities and can neither read
@@ -11891,6 +11893,26 @@ async def spds_get(
     if not handles:
         raise ToolError("handles is empty")
     return await _spds(ctx, "describe", {"handles": [str(h) for h in handles]})
+
+
+@cad_tool(summary="Diagnose a СПДС object beyond its parameter list.", cost="read")
+@mcp.tool(
+    annotations={"title": "СПДС: Inspect Object", "readOnlyHint": True},
+    tags={"spds", "query"},
+)
+async def spds_inspect(
+    handle: Annotated[str, "Object handle"],
+    with_bytes: Annotated[bool, "Also return the serialized object (base64)"] = False,
+    ctx: Context = None,
+) -> dict:
+    """What `spds_get` cannot show: the object's custom and system property
+    bags, its child objects (with their parameters; a technical-text child
+    reports its text height and content), and where common text heights
+    (1.5 / 2.5 / 3.5 / 5 / 7) occur in its serialized form. For finding where
+    nanoCAD keeps a setting such as a stamp cell's text height. Read-only.
+    Pack: spds · lean: no.
+    """
+    return await _spds(ctx, "inspect", {"handle": str(handle), "bytes": bool(with_bytes)})
 
 
 @cad_tool(summary="Change parameters of a СПДС object (fill the stamp, set a mark).", cost="mutate")

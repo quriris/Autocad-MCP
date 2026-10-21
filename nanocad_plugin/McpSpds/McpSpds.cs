@@ -73,7 +73,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.4";
+        public const string PluginVersion = "0.2.5";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -181,6 +181,8 @@ namespace McpSpds
                     return CreateByClass(a);
                 case "project_info":
                     return ProjectInfo(a);
+                case "inspect":
+                    return Inspect(a);
                 default:
                     throw new ArgumentException("unknown op '" + op + "'");
             }
@@ -642,6 +644,118 @@ namespace McpSpds
             }
             d["parents"] = chain;
             return d;
+        }
+
+        // Diagnostics for what the property list does not show — e.g. a stamp
+        // cell's text height, set in nanoCAD's "Настройка текста" dialog and
+        // stored per format (measured: a second format kept 3.5 mm while the
+        // first had 1.5 mm), yet absent from ObjectProperties.
+        static object Inspect(JsonElement a)
+        {
+            string handle = a.GetProperty("handle").GetString() ?? "";
+            var obj = Resolve(handle);
+            var d = new Dictionary<string, object> { ["handle"] = handle, ["class"] = obj.GetType().FullName ?? "" };
+            if (obj is not McEntity e)
+                return d;
+            d["bags"] = Bag3(e.DbObject);
+            d["children"] = Children(e.DbEntity, 0);
+            try
+            {
+                var bytes = e.DbEntity.SerializeToBytes();
+                d["bytes_len"] = bytes.Length;
+                var hits = new Dictionary<string, object>();
+                foreach (var v in new[] { 1.5, 2.5, 3.5, 5.0, 7.0 })
+                {
+                    var offs = new List<int>();
+                    var pat = BitConverter.GetBytes(v);
+                    var patf = BitConverter.GetBytes((float)v);
+                    for (int i = 0; i + 8 <= bytes.Length; i++)
+                        if (Match(bytes, i, pat)) offs.Add(i);
+                    var offsf = new List<int>();
+                    for (int i = 0; i + 4 <= bytes.Length; i++)
+                        if (Match(bytes, i, patf)) offsf.Add(i);
+                    hits[v.ToString(CultureInfo.InvariantCulture)] = new Dictionary<string, object>
+                    {
+                        ["double"] = offs.Count > 40 ? offs.GetRange(0, 40) : offs,
+                        ["float"] = offsf.Count > 40 ? offsf.GetRange(0, 40) : offsf,
+                    };
+                }
+                d["value_offsets"] = hits;
+                if (Bool(a, "bytes", false))
+                    d["bytes_b64"] = Convert.ToBase64String(bytes);
+            }
+            catch (Exception ex) { d["serialize_error"] = ex.Message; }
+            return d;
+        }
+
+        static bool Match(byte[] b, int at, byte[] pat)
+        {
+            for (int k = 0; k < pat.Length; k++)
+                if (b[at + k] != pat[k]) return false;
+            return true;
+        }
+
+        static Dictionary<string, object> Bag3(McPropertySource src)
+        {
+            var d = new Dictionary<string, object>();
+            foreach (var kind in new[] { "object", "custom", "system" })
+            {
+                var bag = new Dictionary<string, object>();
+                try
+                {
+                    var props = kind == "object" ? src.ObjectProperties
+                        : kind == "custom" ? src.CustomProperties : src.SystemProperties;
+                    foreach (var n in props.GetNames())
+                    {
+                        try
+                        {
+                            var p = props.GetProperty(n);
+                            bag[n] = kind == "object" ? (p?.PropertyType?.Name ?? "") : ToJson(p?.GetValue());
+                        }
+                        catch (Exception ex) { bag[n] = "ERROR " + ex.Message; }
+                    }
+                }
+                catch (Exception ex) { bag["!"] = ex.Message; }
+                d[kind] = bag;
+            }
+            return d;
+        }
+
+        static List<object> Children(McDbEntity db, int depth)
+        {
+            var list = new List<object>();
+            if (depth > 3)
+                return list;
+            var ids = new List<McObjectId>();
+            try { ids.AddRange(db.ChildrenIds); } catch { }
+            try
+            {
+                foreach (var id in db.GetChildrenIdsEx(ChildrenSysFilterType.ChildrenSysFilter_All))
+                    if (!ids.Contains(id)) ids.Add(id);
+            }
+            catch { }
+            foreach (var id in ids)
+            {
+                var c = new Dictionary<string, object> { ["mc_class"] = id.ClassName ?? "", ["handle"] = Hex(id) };
+                try
+                {
+                    var o = id.GetObject();
+                    c["class"] = o?.GetType().FullName ?? "";
+                    if (o is McTText tt)
+                    {
+                        c["text_height"] = tt.TextHeight;
+                        c["content"] = tt.GetContent();
+                    }
+                    if (o is McEntity ce)
+                    {
+                        c["props"] = Bag(ce.DbObject);
+                        c["children"] = Children(ce.DbEntity, depth + 1);
+                    }
+                }
+                catch (Exception ex) { c["error"] = ex.Message; }
+                list.Add(c);
+            }
+            return list;
         }
 
         static Dictionary<string, object> Bag(McPropertySource src)

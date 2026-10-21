@@ -2652,6 +2652,14 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "отметка этажа",
         ),
     ),
+    "spds_inspect": ToolAliases(
+        synonyms=(
+            "inspect spds object",
+            "stamp text height",
+            "высота текста штампа",
+            "диагностика объекта спдс",
+        ),
+    ),
     "spds_create": ToolAliases(
         synonyms=(
             "create level mark",
