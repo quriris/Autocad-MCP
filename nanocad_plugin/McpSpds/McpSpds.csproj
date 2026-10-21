@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Optional: build the plugin yourself on Windows with `dotnet build -c Release`.
+       A prebuilt copy is in ..\bin\McpSpds.dll. -->
+  <PropertyGroup>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <LangVersion>10</LangVersion>
+    <AssemblyName>McpSpds</AssemblyName>
+    <OutputPath>..\bin\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <NanoCadDir Condition="'$(NanoCadDir)' == ''">C:\Program Files\Nanosoft\nanoCAD x64 24.1</NanoCadDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="mapimgd">
+      <HintPath>$(NanoCadDir)\NanoSPDS\bin\mapimgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="mapibasetypes">
+      <HintPath>$(NanoCadDir)\NanoSPDS\bin\mapibasetypes.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -64,3 +64,6 @@ benchmarks/.competitors/
 # AutoCAD writes its plot-and-publish log into the cwd of the plotting process
 # (scripts/smoke_settings_com.py plots from the repo root).
 plot.log
+
+# nanoCAD probe / smoke reports carry drawing contents
+nanocad_*report.json

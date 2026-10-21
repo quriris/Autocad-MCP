@@ -2577,6 +2577,81 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "ведомость кабелей",
         ),
     ),
+    # SECTION 28 - nanoCAD СПДС objects. No AutoCAD command does this.
+    "spds_status": ToolAliases(
+        synonyms=("spds plugin", "is the spds plugin loaded", "плагин спдс", "nanocad спдс"),
+    ),
+    "spds_plugin_load": ToolAliases(
+        acad=("NETLOAD",),
+        synonyms=("load spds plugin", "загрузить плагин спдс", "netload mcpspds"),
+    ),
+    "spds_list": ToolAliases(
+        synonyms=(
+            "spds objects",
+            "find formats",
+            "list stamps",
+            "объекты спдс",
+            "найти форматы",
+            "список отметок",
+        ),
+    ),
+    "spds_get": ToolAliases(
+        synonyms=(
+            "read stamp",
+            "title block fields",
+            "level mark value",
+            "прочитать штамп",
+            "поля штампа",
+            "значение отметки",
+            "свойства объекта спдс",
+        ),
+    ),
+    "spds_set": ToolAliases(
+        synonyms=(
+            "fill title block",
+            "fill stamp",
+            "set level mark",
+            "заполнить штамп",
+            "основная надпись",
+            "изменить отметку",
+            "задать параметры спдс",
+        ),
+    ),
+    "spds_format_create": ToolAliases(
+        synonyms=(
+            "sheet format",
+            "drawing frame with stamp",
+            "a3 format",
+            "формат листа",
+            "рамка со штампом",
+            "шаблон формата",
+            "формат а3",
+            "штамп",
+        ),
+    ),
+    "spds_leader_create": ToolAliases(
+        synonyms=(
+            "position leader",
+            "multilayer leader",
+            "callout",
+            "выноска",
+            "позиционная выноска",
+            "многослойная выноска",
+        ),
+    ),
+    "spds_break_create": ToolAliases(
+        synonyms=("break line", "break symbol", "разрыв", "линия обрыва", "обрыв"),
+    ),
+    "spds_clone": ToolAliases(
+        synonyms=(
+            "level mark",
+            "elevation mark",
+            "copy spds object",
+            "отметка уровня",
+            "высотная отметка",
+            "копировать объект спдс",
+        ),
+    ),
 }
 
 

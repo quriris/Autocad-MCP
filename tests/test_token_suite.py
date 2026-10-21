@@ -178,6 +178,7 @@ def test_the_idle_lane_covers_the_five_advertised_surfaces(report):
         - len(packs["settings"])
         - len(packs["arch"])
         - len(packs["plant"])
+        - len(packs["spds"])
     )
     assert variants["packs_core_arch"]["advertised_tools"] == (
         variants["default"]["advertised_tools"]
@@ -185,6 +186,7 @@ def test_the_idle_lane_covers_the_five_advertised_surfaces(report):
         - len(packs["settings"])
         - len(packs["mech"])
         - len(packs["plant"])
+        - len(packs["spds"])
     )
     for narrowed in ("packs_core_mech", "packs_core_arch"):
         assert (

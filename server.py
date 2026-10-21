@@ -701,6 +701,7 @@ async def _registered_tool_count() -> int | None:
 # specific tags (engineering/premium/corner) take precedence over the broad
 # entity/drawing tags. Tools whose tags match none fall into "other".
 _GROUP_TAG_PRIORITY = (
+    "spds",
     "pid",
     "mech",
     "arch",
@@ -734,6 +735,7 @@ _GROUP_TAG_PRIORITY = (
 
 # Map the winning tag to a human-readable group label for the breakdown.
 _GROUP_TAG_LABELS = {
+    "spds": "spds",
     "pid": "pid",
     "mech": "mechanical",
     "arch": "architecture",
@@ -1008,7 +1010,7 @@ SOLID_TOOL_NAMES = frozenset(
 # mechanically should not pay for the P&ID surface, and a client that never
 # talks to a live seat should not pay for the environment surface. Styles and
 # page setup (SECTION 18/19) are drafting essentials and stay in core.
-TOOL_PACK_NAMES = ("core", "pid", "settings", "mech", "arch", "plant")
+TOOL_PACK_NAMES = ("core", "pid", "settings", "mech", "arch", "plant", "spds")
 PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
     "pid": frozenset(
         {
@@ -1098,6 +1100,21 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
     # comparing and checking a drawing is not a vertical. Track D's Plant 3D
     # readers join this pack.
     "plant": frozenset({"pipe_takeoff", "cable_takeoff"}),
+    # SECTION 28 - nanoCAD СПДС objects through the McpSpds plugin (formats with
+    # their stamp, leaders, breaks, level marks). nanoCAD-only.
+    "spds": frozenset(
+        {
+            "spds_status",
+            "spds_plugin_load",
+            "spds_list",
+            "spds_get",
+            "spds_set",
+            "spds_format_create",
+            "spds_leader_create",
+            "spds_break_create",
+            "spds_clone",
+        }
+    ),
 }
 
 _active_tool_profile: dict | None = None
@@ -11729,6 +11746,298 @@ TIPS:
 - Angles are in degrees, counter-clockwise from X axis
 - Entity handles are hex strings (e.g. '1A2B') — save them for later editing
 """
+
+
+# ── SECTION 28: nanoCAD СПДС Objects (9 tools) ──────────────────────────────
+#
+# Formats with their stamp, leaders, breaks, level marks... are MultiCAD
+# objects: plain ActiveX sees them as anonymous entities and can neither read
+# nor create them (measured, nanoCAD 24.1). These tools talk to the McpSpds
+# plugin inside nanoCAD (nanocad_plugin/), which uses MultiCAD.NET. They need
+# AUTOCAD_MCP_BACKEND=nanocad and the plugin loaded (spds_plugin_load).
+
+_SPDS_FORMAT_SIZES = ("A0", "A1", "A2", "A3", "A4", "A5")
+_SPDS_TEMPLATES = ("SPDS", "GOST", "ISO", "DIN", "NONE")
+_SPDS_BREAK_TYPES = ("linear", "twolinear", "curved", "twocurved", "tubular")
+_SPDS_LEADER_KINDS = ("position", "multilayer")
+
+
+def _spds_backend(ctx: Context):
+    backend = _backend(ctx)
+    if not hasattr(backend, "spds_call"):
+        raise ToolError(
+            "СПДС tools need the live nanoCAD backend (AUTOCAD_MCP_BACKEND=nanocad); "
+            f"the {getattr(backend, 'name', 'current')} backend cannot reach СПДС objects."
+        )
+    return backend
+
+
+async def _spds(ctx: Context, op: str, args: dict | None = None):
+    try:
+        return await _spds_backend(ctx).spds_call(op, args)
+    except (RuntimeError, TimeoutError, FileNotFoundError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+def _xy(x: float, y: float) -> list[float]:
+    return [float(x), float(y), 0.0]
+
+
+@cad_tool(summary="Is the nanoCAD СПДС plugin loaded and answering?", cost="read")
+@mcp.tool(
+    annotations={"title": "СПДС: Plugin Status", "readOnlyHint": True},
+    tags={"spds", "system"},
+)
+async def spds_status(ctx: Context = None) -> dict:
+    """Pings the McpSpds plugin inside nanoCAD: `plugin_version`, `document`.
+    A plugin that does not answer is reported with how to load it
+    (`spds_plugin_load`). Pack: spds · lean: no.
+    """
+    return await _spds(ctx, "ping")
+
+
+@cad_tool(summary="Load the СПДС plugin into the running nanoCAD.", cost="safe")
+@mcp.tool(
+    annotations={"title": "СПДС: Load Plugin", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "system"},
+)
+async def spds_plugin_load(
+    path: Annotated[str | None, "McpSpds.dll to load; default the copy in this repository"] = None,
+    ctx: Context = None,
+) -> dict:
+    """NETLOADs McpSpds.dll (FILEDIA is held at 0 for the load and restored)
+    and pings it. Loading lasts until nanoCAD is closed; to load it on every
+    start, add it to nanoCAD's startup list (APPLOAD). Pack: spds · lean: no.
+    """
+    try:
+        return await _spds_backend(ctx).spds_plugin_load(path)
+    except (RuntimeError, TimeoutError, FileNotFoundError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@cad_tool(summary="List the СПДС objects of the drawing (formats, leaders, marks...).", cost="read")
+@mcp.tool(
+    annotations={"title": "СПДС: List Objects", "readOnlyHint": True},
+    tags={"spds", "query"},
+)
+async def spds_list(
+    class_contains: Annotated[
+        str | None,
+        "Keep only classes containing this text, e.g. 'Format', 'LevelMark', 'Note', 'Break'",
+    ] = None,
+    limit: Annotated[int, "Most objects returned (the total is always counted)"] = 500,
+    ctx: Context = None,
+) -> dict:
+    """Every MultiCAD object of the drawing, model and sheets: `handle`,
+    `mc_class` (e.g. mcsDbObjectFormat, mcsDbObjectLevelMark), `layer`, `bbox`.
+    Found inside nanoCAD, so a huge model is not walked over COM. Read the
+    parameters of one with `spds_get`. Pack: spds · lean: no.
+    """
+    if limit < 1:
+        raise ToolError("limit must be at least 1")
+    args = {"limit": min(int(limit), config.settings.max_list_limit)}
+    if class_contains:
+        args["class_contains"] = class_contains
+    return await _spds(ctx, "list", args)
+
+
+@cad_tool(
+    summary="Read the parameters of СПДС objects (stamp fields, mark values...).", cost="read"
+)
+@mcp.tool(
+    annotations={"title": "СПДС: Get Parameters", "readOnlyHint": True},
+    tags={"spds", "query"},
+)
+async def spds_get(
+    handles: Annotated[list[str], "Handles from spds_list (or any entity tool)"],
+    ctx: Context = None,
+) -> list:
+    """For each handle: `class`, `layer`, `bbox` and `properties` — every
+    parameter the object exposes, as `{value, type, readonly}`. These names are
+    the keys `spds_set` and the `props` of the create tools accept. Pack:
+    spds · lean: no.
+    """
+    if not handles:
+        raise ToolError("handles is empty")
+    return await _spds(ctx, "describe", {"handles": [str(h) for h in handles]})
+
+
+@cad_tool(summary="Change parameters of a СПДС object (fill the stamp, set a mark).", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Set Parameters", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "modify"},
+)
+async def spds_set(
+    handle: Annotated[str, "Object handle"],
+    props: Annotated[dict, "Parameter name -> new value, names as spds_get reports them"],
+    ctx: Context = None,
+) -> dict:
+    """Writes each named parameter (numbers, text, true/false, points as
+    `[x, y]`, enum values by name). An unknown or read-only name is refused
+    and nothing after it is written. Returns `changed`. Pack: spds · lean: no.
+    """
+    if not props:
+        raise ToolError("props is empty")
+    return await _spds(ctx, "set", {"handle": str(handle), "props": props})
+
+
+@cad_tool(summary="Place a СПДС sheet format with its stamp (A0-A5).", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Create Format", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_format_create(
+    size: Annotated[str, "A0 | A1 | A2 | A3 | A4 | A5"] = "A3",
+    x: Annotated[float, "Insertion point X"] = 0.0,
+    y: Annotated[float, "Insertion point Y"] = 0.0,
+    horizontal: Annotated[bool, "Landscape (true) or portrait"] = True,
+    scale: Annotated[float | None, "Drawing scale denominator for the format (100 = 1:100)"] = None,
+    template: Annotated[str, "Stamp standard: SPDS | GOST | ISO | DIN | NONE"] = "SPDS",
+    multiplicity: Annotated[int | None, "Format multiplicity (A4x3 -> 3)"] = None,
+    sheet: Annotated[int | None, "Sheet number"] = None,
+    sheet_count: Annotated[int | None, "Number of sheets"] = None,
+    name: Annotated[str | None, "Format name"] = None,
+    props: Annotated[dict | None, "More parameters by name (see spds_get on a format)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A nanoCAD СПДС format (frame + stamp) as a real format object, editable
+    in nanoCAD afterwards. Stamp fields are parameters: read their names once
+    with `spds_get` on a format and fill them with `props` or `spds_set`.
+    Returns the new object's `handle` and parameters. Pack: spds · lean: no.
+    """
+    size_u = size.strip().upper()
+    if size_u not in _SPDS_FORMAT_SIZES:
+        raise ToolError(f"size must be one of {', '.join(_SPDS_FORMAT_SIZES)}")
+    template_u = template.strip().upper()
+    if template_u not in _SPDS_TEMPLATES:
+        raise ToolError(f"template must be one of {', '.join(_SPDS_TEMPLATES)}")
+    args: dict = {
+        "size": size_u,
+        "origin": _xy(x, y),
+        "horizontal": bool(horizontal),
+        "template": template_u,
+    }
+    for key, value in (
+        ("scale", scale),
+        ("multiplicity", multiplicity),
+        ("sheet", sheet),
+        ("sheet_count", sheet_count),
+        ("name", name),
+        ("props", props),
+    ):
+        if value is not None:
+            args[key] = value
+    return await _spds(ctx, "format_create", args)
+
+
+@cad_tool(summary="Place a СПДС leader: position note or multilayer note.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Create Leader", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_leader_create(
+    kind: Annotated[str, "position (позиционная выноска) | multilayer (многослойная)"],
+    x: Annotated[float, "position: the shelf/number point · multilayer: the arrow point"],
+    y: Annotated[float, "Y of that point"],
+    targets: Annotated[
+        list[list[float]] | None, "position: arrow points [[x, y], ...] the leader lines go to"
+    ] = None,
+    first_line: Annotated[str, "position: text above the shelf (the position number)"] = "",
+    second_line: Annotated[str, "position: text under the shelf"] = "",
+    lines: Annotated[list[str] | None, "multilayer: one text per layer, top first"] = None,
+    end_x: Annotated[float | None, "multilayer: shelf point X"] = None,
+    end_y: Annotated[float | None, "multilayer: shelf point Y"] = None,
+    text_size: Annotated[float | None, "Text height"] = None,
+    props: Annotated[dict | None, "More parameters by name (see spds_get)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A nanoCAD СПДС leader object. `position`: a shelf at (x, y) with
+    `first_line` / `second_line` and a leader line to each of `targets`.
+    `multilayer`: an arrow at (x, y), the shelf at (end_x, end_y), one text per
+    entry of `lines`. Returns the new object's `handle`. Pack: spds · lean: no.
+    """
+    kind_l = kind.strip().lower()
+    if kind_l not in _SPDS_LEADER_KINDS:
+        raise ToolError(f"kind must be one of {', '.join(_SPDS_LEADER_KINDS)}")
+    args: dict = {}
+    if text_size is not None:
+        args["text_size"] = float(text_size)
+    if props:
+        args["props"] = props
+    if kind_l == "position":
+        args.update(
+            {
+                "origin": _xy(x, y),
+                "first_line": first_line,
+                "second_line": second_line,
+                "targets": [_xy(t[0], t[1]) for t in (targets or [])],
+            }
+        )
+        return await _spds(ctx, "note_position_create", args)
+    if end_x is None or end_y is None:
+        raise ToolError("multilayer needs end_x and end_y (the shelf point)")
+    args.update({"start": _xy(x, y), "end": _xy(end_x, end_y), "lines": list(lines or [])})
+    return await _spds(ctx, "note_multilayer_create", args)
+
+
+@cad_tool(summary="Place a СПДС break line (linear, curved, tubular).", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Create Break", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_break_create(
+    start_x: Annotated[float, "Start point X"],
+    start_y: Annotated[float, "Start point Y"],
+    end_x: Annotated[float, "End point X"],
+    end_y: Annotated[float, "End point Y"],
+    type: Annotated[str, "linear | twolinear | curved | twocurved | tubular"] = "linear",
+    length: Annotated[float | None, "Break mark length"] = None,
+    width: Annotated[float | None, "Break mark width"] = None,
+    props: Annotated[dict | None, "More parameters by name (see spds_get)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A nanoCAD СПДС break (линия обрыва) between the two points. Returns
+    the new object's `handle`. Pack: spds · lean: no.
+    """
+    type_l = type.strip().lower()
+    if type_l not in _SPDS_BREAK_TYPES:
+        raise ToolError(f"type must be one of {', '.join(_SPDS_BREAK_TYPES)}")
+    args: dict = {
+        "start": _xy(start_x, start_y),
+        "end": _xy(end_x, end_y),
+        "type": type_l.capitalize(),
+    }
+    if length is not None:
+        args["length"] = float(length)
+    if width is not None:
+        args["width"] = float(width)
+    if props:
+        args["props"] = props
+    return await _spds(ctx, "break_create", args)
+
+
+@cad_tool(
+    summary="Copy a СПДС object (e.g. a level mark), move it, change its parameters.", cost="mutate"
+)
+@mcp.tool(
+    annotations={"title": "СПДС: Clone Object", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_clone(
+    handle: Annotated[str, "The СПДС object to copy"],
+    dx: Annotated[float, "Move the copy by dx"] = 0.0,
+    dy: Annotated[float, "Move the copy by dy"] = 0.0,
+    props: Annotated[dict | None, "Parameters to change on the copy (see spds_get)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """For СПДС objects with no create tool — level marks (отметки уровня) and
+    the rest: copies an existing one, moves the copy by (dx, dy), then writes
+    `props`. Returns the copy's `handle`. Pack: spds · lean: no.
+    """
+    args: dict = {"handle": str(handle), "dx": float(dx), "dy": float(dy)}
+    if props:
+        args["props"] = props
+    return await _spds(ctx, "clone", args)
 
 
 # ---------------------------------------------------------------------------

@@ -180,7 +180,7 @@ LEAN_SETTINGS_ESSENTIALS = {
 }
 
 #: Declaration order - what `tool_packs["available"]` reports.
-ALL_PACKS = ["core", "pid", "settings", "mech", "arch", "plant"]
+ALL_PACKS = ["core", "pid", "settings", "mech", "arch", "plant", "spds"]
 #: `tool_packs["enabled"]` is sorted, which is no longer the same list.
 ALL_PACKS_ENABLED = sorted(ALL_PACKS)
 
@@ -193,7 +193,7 @@ async def _restore(monkeypatch):
 
 
 def test_pack_registry_names_real_tools_and_only_them():
-    assert server.TOOL_PACK_NAMES == ("core", "pid", "settings", "mech", "arch", "plant")
+    assert server.TOOL_PACK_NAMES == ("core", "pid", "settings", "mech", "arch", "plant", "spds")
     assert server.PACK_TOOL_NAMES["pid"] == frozenset(PID_TOOLS)
     assert server.PACK_TOOL_NAMES["mech"] == frozenset(MECH_TOOLS)
     assert server.PACK_TOOL_NAMES["settings"] == frozenset(SETTINGS_TOOLS)
@@ -210,6 +210,8 @@ def test_pack_registry_names_real_tools_and_only_them():
         assert not (server.PACK_TOOL_NAMES["arch"] & server.PACK_TOOL_NAMES[pack]), pack
     for pack in ("pid", "settings", "mech", "arch"):
         assert not (server.PACK_TOOL_NAMES["plant"] & server.PACK_TOOL_NAMES[pack]), pack
+    for pack in ("pid", "settings", "mech", "arch", "plant"):
+        assert not (server.PACK_TOOL_NAMES["spds"] & server.PACK_TOOL_NAMES[pack]), pack
     assert not (UNDERSTAND_TOOLS & set().union(*server.PACK_TOOL_NAMES.values())), (
         "SECTION 26 reads any drawing: core, not a vertical pack"
     )
@@ -330,7 +332,8 @@ async def test_the_three_track_e_sections_file_under_their_own_groups():
     assert set(groups["architecture"]) == ARCH_TOOLS
     assert set(groups["understanding"]) == UNDERSTAND_TOOLS
     assert set(groups["plant"]) == PLANT_TOOLS
-    assert len(groups) == 28
+    assert set(groups["spds"]) == server.PACK_TOOL_NAMES["spds"]
+    assert len(groups) == 29
 
 
 async def test_system_about_reports_packs():

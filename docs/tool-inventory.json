@@ -3,10 +3,10 @@
   "schema_version": 1,
   "package_version": "1.6.0",
   "totals": {
-    "tools": 247,
+    "tools": 256,
     "resources": 8,
     "prompts": 5,
-    "groups": 28
+    "groups": 29
   },
   "groups": {
     "analysis": 12,
@@ -30,6 +30,7 @@
     "premium": 12,
     "sheet": 11,
     "solids": 5,
+    "spds": 9,
     "styles": 10,
     "system": 7,
     "templates": 2,
@@ -2835,6 +2836,138 @@
       "annotations": {
         "title": "Solid: Revolve",
         "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_break_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Place a СПДС break line (linear, curved, tubular).",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Create Break",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_clone",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Copy a СПДС object (e.g. a level mark), move it, change its parameters.",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Clone Object",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_format_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Place a СПДС sheet format with its stamp (A0-A5).",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Create Format",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_get",
+      "group": "spds",
+      "cost": "read",
+      "summary": "Read the parameters of СПДС objects (stamp fields, mark values...).",
+      "tags": [
+        "query",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Get Parameters",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "spds_leader_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Place a СПДС leader: position note or multilayer note.",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Create Leader",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_list",
+      "group": "spds",
+      "cost": "read",
+      "summary": "List the СПДС objects of the drawing (formats, leaders, marks...).",
+      "tags": [
+        "query",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: List Objects",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "spds_plugin_load",
+      "group": "spds",
+      "cost": "safe",
+      "summary": "Load the СПДС plugin into the running nanoCAD.",
+      "tags": [
+        "spds",
+        "system"
+      ],
+      "annotations": {
+        "title": "СПДС: Load Plugin",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_set",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Change parameters of a СПДС object (fill the stamp, set a mark).",
+      "tags": [
+        "modify",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Set Parameters",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_status",
+      "group": "spds",
+      "cost": "read",
+      "summary": "Is the nanoCAD СПДС plugin loaded and answering?",
+      "tags": [
+        "spds",
+        "system"
+      ],
+      "annotations": {
+        "title": "СПДС: Plugin Status",
+        "readOnlyHint": true
       }
     },
     {

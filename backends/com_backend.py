@@ -6966,6 +6966,31 @@ class ComBackend(AutoCADBackend):
 
     # ── system ──────────────────────────────────────────────────────────────
 
+    # -- nanoCAD СПДС (through the McpSpds plugin, see backends/spds_bridge) ----
+
+    def _require_nanocad(self) -> None:
+        if not cad_flavor.is_nanocad():
+            raise RuntimeError(
+                "СПДС tools need nanoCAD (AUTOCAD_MCP_BACKEND=nanocad); this seat is "
+                f"{config.settings.cad_progid}."
+            )
+
+    async def spds_call(self, op: str, args: dict | None = None, timeout: float = 30.0):
+        """One McpSpds plugin operation, run on the active document."""
+        from . import spds_bridge
+
+        self._require_nanocad()
+        return await self._run(lambda: spds_bridge.call(_acad_doc(), op, args, timeout))
+
+    async def spds_plugin_load(self, path: str | None = None) -> dict:
+        """NETLOAD the plugin, then prove it answers."""
+        from . import spds_bridge
+
+        self._require_nanocad()
+        loaded = await self._run(lambda: spds_bridge.netload(_acad_doc(), path))
+        ping = await self.spds_call("ping", timeout=15.0)
+        return {"ok": True, "loaded": loaded, **(ping or {})}
+
     async def system_status(self) -> dict:
         tx_active = self._transaction_active
 
