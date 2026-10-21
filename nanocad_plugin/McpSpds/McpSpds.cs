@@ -72,7 +72,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.2.1";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -341,7 +341,7 @@ namespace McpSpds
             string handle = a.GetProperty("handle").GetString() ?? "";
             var obj = Resolve(handle);
             var applied = ApplyProps(obj, a.TryGetProperty("props", out var p) ? p : default);
-            Commit(obj);
+            Commit(obj, applied.Count > 0);
             return new Dictionary<string, object> { ["handle"] = handle, ["changed"] = applied };
         }
 
@@ -365,8 +365,8 @@ namespace McpSpds
             f.Origin = P(a.GetProperty("origin"));
             f.DbEntity.AddToCurrentDocument();
             ApplyScale(f, a);
-            ApplyProps(f, a.TryGetProperty("props", out var p) ? p : default);
-            Commit(f);
+            var stamp = ApplyProps(f, a.TryGetProperty("props", out var p) ? p : default);
+            Commit(f, stamp.Count > 0);
             return Created(f);
         }
 
@@ -418,6 +418,9 @@ namespace McpSpds
                 b.Length = l.GetDouble();
             if (a.TryGetProperty("width", out var w))
                 b.Width = w.GetDouble();
+            // nanoCAD picked Offset -120 on its own, putting the break beside
+            // the two points rather than between them (measured, nanoCAD 24.1).
+            b.Offset = Num(a, "offset", 0);
             b.DbEntity.AddToCurrentDocument();
             ApplyScale(b, a);
             ApplyProps(b, a.TryGetProperty("props", out var p) ? p : default);
@@ -520,10 +523,22 @@ namespace McpSpds
             return changed;
         }
 
-        static void Commit(McObject obj)
+        static void Commit(McObject obj, bool pushToProject = false)
         {
             if (obj is McEntity e)
+            {
+                // Shared stamp fields (обозначение, объект, организация...) live
+                // in the drawing's project node; Update pulls them back from it
+                // and silently undid a fresh Designation (measured, nanoCAD 24.1).
+                // Push what was just written to the node first, as nanoCAD's own
+                // stamp editor does — it then reaches every format sharing it.
+                if (pushToProject)
+                {
+                    try { e.DbObject.UpdateProjectData(ProjectDataUpdateDirection.FromObjectToNode); }
+                    catch (Exception ex) { Log("UpdateProjectData: " + ex.Message); }
+                }
                 e.DbObject.Update();
+            }
             McObjectManager.UpdateAll();
         }
 

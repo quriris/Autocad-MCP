@@ -1114,6 +1114,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "spds_break_create",
             "spds_clone",
             "spds_create",
+            "spds_level_mark_create",
         }
     ),
 }
@@ -11749,7 +11750,7 @@ TIPS:
 """
 
 
-# ── SECTION 28: nanoCAD СПДС Objects (10 tools) ─────────────────────────────
+# ── SECTION 28: nanoCAD СПДС Objects (11 tools) ─────────────────────────────
 #
 # Formats with their stamp, leaders, breaks, level marks... are MultiCAD
 # objects: plain ActiveX sees them as anonymous entities and can neither read
@@ -11761,6 +11762,19 @@ _SPDS_FORMAT_SIZES = ("A0", "A1", "A2", "A3", "A4", "A5")
 _SPDS_TEMPLATES = ("SPDS", "GOST", "ISO", "DIN", "NONE")
 _SPDS_BREAK_TYPES = ("linear", "twolinear", "curved", "twocurved", "tubular")
 _SPDS_LEADER_KINDS = ("position", "multilayer")
+
+#: MultiCAD class id of the nanoCAD СПДС level mark (отметка уровня). It has no
+#: MultiCAD.NET class, so it is created by id (read off nanoCAD 24.1).
+SPDS_LEVEL_MARK_CLASS_ID = "a9b900a6-1b65-4f9c-bee9-d5751a9c4484"
+
+
+def spds_level_text(value: float) -> str:
+    """A level in nanoCAD's own spelling: ``+3,000``, ``-0,450``, ``0,000``."""
+    rounded = round(float(value), 3)
+    if rounded == 0:
+        return "0,000"
+    sign = "+" if rounded > 0 else "-"
+    return sign + f"{abs(rounded):.3f}".replace(".", ",")
 
 
 def _spds_backend(ctx: Context):
@@ -12027,6 +12041,7 @@ async def spds_break_create(
     type: Annotated[str, "linear | twolinear | curved | twocurved | tubular"] = "linear",
     length: Annotated[float | None, "Break mark length"] = None,
     width: Annotated[float | None, "Break mark width"] = None,
+    offset: Annotated[float, "Shift of the break mark off the line (0 = on it)"] = 0.0,
     props: Annotated[dict | None, "More parameters by name (see spds_get)"] = None,
     scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
     ctx: Context = None,
@@ -12041,6 +12056,7 @@ async def spds_break_create(
         "start": _xy(start_x, start_y),
         "end": _xy(end_x, end_y),
         "type": type_l.capitalize(),
+        "offset": float(offset),
     }
     if scale is not None:
         args["scale"] = float(scale)
@@ -12115,6 +12131,43 @@ async def spds_create(
         args["scale"] = float(scale)
     if props:
         args["props"] = props
+    return await _spds(ctx, "create", args)
+
+
+@cad_tool(summary="Place a СПДС level mark (отметка уровня) with its value.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Level Mark", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_level_mark_create(
+    x: Annotated[float, "Mark point X"],
+    y: Annotated[float, "Mark point Y"],
+    value: Annotated[
+        float | None,
+        "Level in metres (3 -> +3,000); leave out to take it from y (y in mm / 1000)",
+    ] = None,
+    comment: Annotated[str | None, "Text under the shelf, e.g. 'Пол 1 этажа'"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
+    props: Annotated[dict | None, "More parameters by name (see spds_get on a mark)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A nanoCAD СПДС level mark at (x, y). Without `value` nanoCAD computes it
+    from the height (measured: y=3000 -> +3,000 on a 1:1 mm drawing); with
+    `value` the text is written as given, in nanoCAD's spelling (+3,000,
+    -0,450, 0,000). Returns the new `handle`; its `Text` is the value shown.
+    Pack: spds · lean: no.
+    """
+    merged: dict = {}
+    if value is not None:
+        merged["Text"] = spds_level_text(value)
+    if comment is not None:
+        merged["Comment"] = comment
+    merged.update(props or {})
+    args: dict = {"class_id": SPDS_LEVEL_MARK_CLASS_ID, "at": _xy(x, y)}
+    if scale is not None:
+        args["scale"] = float(scale)
+    if merged:
+        args["props"] = merged
     return await _spds(ctx, "create", args)
 
 

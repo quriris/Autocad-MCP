@@ -149,6 +149,7 @@ def test_spds_tools_form_their_own_pack():
         "spds_break_create",
         "spds_clone",
         "spds_create",
+        "spds_level_mark_create",
     }
 
 
@@ -165,3 +166,13 @@ def test_log_tail_returns_the_last_lines(tmp_path):
     (tmp_path / "plugin.log").write_text("\n".join(f"line {i}" for i in range(30)), "utf-8")
     assert sb.log_tail(tmp_path, lines=2) == "line 28\nline 29"
     assert sb.log_tail(tmp_path / "missing") == ""
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [(3, "+3,000"), (-0.45, "-0,450"), (0, "0,000"), (21.0004, "+21,000"), (-0.0001, "0,000")],
+)
+def test_level_text_is_spelled_like_nanocad(value, text):
+    import server
+
+    assert server.spds_level_text(value) == text

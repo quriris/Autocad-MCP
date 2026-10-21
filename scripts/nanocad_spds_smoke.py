@@ -164,6 +164,18 @@ async def run(report: dict) -> None:
                 "level mark: try Text=+9,999",
                 lambda: b.spds_call("set", {"handle": m1["handle"], "props": {"Text": "+9,999"}}),
             )
+        await step(
+            "level mark create with Text=+5,500 and a comment",
+            lambda: b.spds_call(
+                "create",
+                {
+                    "class_id": mark_class,
+                    "at": [330, 0, 0],
+                    "scale": 1,
+                    "props": {"Text": "+5,500", "Comment": "Пол 2 этажа"},
+                },
+            ),
+        )
         report["level_mark_texts"] = {
             "y=0": ((m0 or {}).get("properties", {}).get("Text") or {}).get("value"),
             "y=3000": ((m1 or {}).get("properties", {}).get("Text") or {}).get("value"),
@@ -171,6 +183,7 @@ async def run(report: dict) -> None:
     else:
         report["level_mark_class_id"] = "no level mark in the open drawing"
     await step("list (new drawing)", lambda: b.spds_call("list", {"limit": 100}))
+    await step("zoom extents", lambda: b.view_zoom_extents())
     await step("screenshot", lambda: _shot(b))
     await step("close new drawing", lambda: b.drawing_close(save=False))
 
