@@ -47,7 +47,8 @@ _PLAIN = re.compile(
 
 _MAX_TYPES = 40
 _MAX_EXAMPLES = 2
-_MAX_ENTITIES = 20000
+#: Per space. Counting is one COM read per entity; 150k reads take a minute or two.
+_MAX_PER_SPACE = 150000
 _MAX_VALUE = 200
 
 _DISPATCH_PROPERTYGET = 2
@@ -229,7 +230,11 @@ def scan_drawing(doc) -> dict:
     counts: Counter[str] = Counter()
     examples: dict[str, list] = {}
     seen = 0
-    spaces = [("Model", doc.ModelSpace)]
+    per_space: dict[str, dict] = {}
+    # Sheets first: a stamp and format live there, and a big model must not
+    # use up the budget before they are reached (the first run hit the cap
+    # on 18k SOLIDs of a facade and never saw a sheet).
+    spaces = []
     try:
         for i in range(doc.Layouts.Count):
             layout = doc.Layouts.Item(i)
@@ -237,16 +242,15 @@ def scan_drawing(doc) -> dict:
                 spaces.append((str(layout.Name), layout.Block))
     except Exception as exc:
         counts["!layouts_error " + _err(exc)[:80]] += 1
+    spaces.append(("Model", doc.ModelSpace))
     for space_name, space in spaces:
-        if space is None:
-            continue
         try:
             n = space.Count
         except Exception:
             continue
-        for i in range(n):
-            if seen >= _MAX_ENTITIES:
-                break
+        per_space[space_name] = {"count": n, "scanned": min(n, _MAX_PER_SPACE)}
+        print(f"  {space_name}: {n} objects")
+        for i in range(min(n, _MAX_PER_SPACE)):
             seen += 1
             try:
                 ent = space.Item(i)
@@ -269,6 +273,7 @@ def scan_drawing(doc) -> dict:
                 bucket.append(item)
     return {
         "entities_scanned": seen,
+        "spaces": per_space,
         "types": dict(counts.most_common()),
         "non_plain_examples": examples,
     }
