@@ -1113,6 +1113,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "spds_leader_create",
             "spds_break_create",
             "spds_clone",
+            "spds_create",
         }
     ),
 }
@@ -11748,7 +11749,7 @@ TIPS:
 """
 
 
-# ── SECTION 28: nanoCAD СПДС Objects (9 tools) ──────────────────────────────
+# ── SECTION 28: nanoCAD СПДС Objects (10 tools) ─────────────────────────────
 #
 # Formats with their stamp, leaders, breaks, level marks... are MultiCAD
 # objects: plain ActiveX sees them as anonymous entities and can neither read
@@ -11897,13 +11898,23 @@ async def spds_format_create(
     sheet: Annotated[int | None, "Sheet number"] = None,
     sheet_count: Annotated[int | None, "Number of sheets"] = None,
     name: Annotated[str | None, "Format name"] = None,
+    designation: Annotated[str | None, "Stamp: обозначение / шифр (Designation)"] = None,
+    object_name: Annotated[str | None, "Stamp: наименование объекта (ComplexName)"] = None,
+    building: Annotated[str | None, "Stamp: здание, система (DrawingName1)"] = None,
+    title: Annotated[str | None, "Stamp: наименование чертежа (Drawing type)"] = None,
+    organization: Annotated[str | None, "Stamp: организация (Enterprise)"] = None,
+    stage: Annotated[str | None, "Stamp: стадия, e.g. ИД (Stage)"] = None,
+    author: Annotated[str | None, "Stamp: Разраб. surname (Author)"] = None,
     props: Annotated[dict | None, "More parameters by name (see spds_get on a format)"] = None,
     ctx: Context = None,
 ) -> dict:
-    """A nanoCAD СПДС format (frame + stamp) as a real format object, editable
-    in nanoCAD afterwards. Stamp fields are parameters: read their names once
-    with `spds_get` on a format and fill them with `props` or `spds_set`.
-    Returns the new object's `handle` and parameters. Pack: spds · lean: no.
+    """A nanoCAD СПДС format (frame + stamp, ГОСТ Р 21.101) as a real format
+    object, editable in nanoCAD afterwards. The common stamp fields have their
+    own arguments; every other field (Control, Add.text*, Add.subject*,
+    Role1...) goes in `props` by the name `spds_get` shows. `scale` sets both
+    the format's scale and DimScale; leave it out to take the drawing's current
+    scale (1:100 in the СПДС template). Returns the new `handle` and its
+    parameters. Pack: spds · lean: no.
     """
     size_u = size.strip().upper()
     if size_u not in _SPDS_FORMAT_SIZES:
@@ -11923,10 +11934,30 @@ async def spds_format_create(
         ("sheet", sheet),
         ("sheet_count", sheet_count),
         ("name", name),
-        ("props", props),
     ):
         if value is not None:
             args[key] = value
+    stamp = {
+        prop: value
+        for prop, value in (
+            ("Designation", designation),
+            ("ComplexName", object_name),
+            ("DrawingName1", building),
+            ("Drawing type", title),
+            ("Enterprise", organization),
+            ("Stage", stage),
+            ("Author", author),
+        )
+        if value is not None
+    }
+    # The stamp's sheet fields are text; the format's own Sheet is a number.
+    if sheet is not None:
+        stamp["Sheet"] = str(sheet)
+    if sheet_count is not None:
+        stamp["SheetCount"] = str(sheet_count)
+    merged = {**stamp, **(props or {})}
+    if merged:
+        args["props"] = merged
     return await _spds(ctx, "format_create", args)
 
 
@@ -11949,6 +11980,7 @@ async def spds_leader_create(
     end_y: Annotated[float | None, "multilayer: shelf point Y"] = None,
     text_size: Annotated[float | None, "Text height"] = None,
     props: Annotated[dict | None, "More parameters by name (see spds_get)"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
     ctx: Context = None,
 ) -> dict:
     """A nanoCAD СПДС leader object. `position`: a shelf at (x, y) with
@@ -11960,6 +11992,8 @@ async def spds_leader_create(
     if kind_l not in _SPDS_LEADER_KINDS:
         raise ToolError(f"kind must be one of {', '.join(_SPDS_LEADER_KINDS)}")
     args: dict = {}
+    if scale is not None:
+        args["scale"] = float(scale)
     if text_size is not None:
         args["text_size"] = float(text_size)
     if props:
@@ -11994,6 +12028,7 @@ async def spds_break_create(
     length: Annotated[float | None, "Break mark length"] = None,
     width: Annotated[float | None, "Break mark width"] = None,
     props: Annotated[dict | None, "More parameters by name (see spds_get)"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
     ctx: Context = None,
 ) -> dict:
     """A nanoCAD СПДС break (линия обрыва) between the two points. Returns
@@ -12007,6 +12042,8 @@ async def spds_break_create(
         "end": _xy(end_x, end_y),
         "type": type_l.capitalize(),
     }
+    if scale is not None:
+        args["scale"] = float(scale)
     if length is not None:
         args["length"] = float(length)
     if width is not None:
@@ -12028,6 +12065,7 @@ async def spds_clone(
     dx: Annotated[float, "Move the copy by dx"] = 0.0,
     dy: Annotated[float, "Move the copy by dy"] = 0.0,
     props: Annotated[dict | None, "Parameters to change on the copy (see spds_get)"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
     ctx: Context = None,
 ) -> dict:
     """For СПДС objects with no create tool — level marks (отметки уровня) and
@@ -12035,9 +12073,49 @@ async def spds_clone(
     `props`. Returns the copy's `handle`. Pack: spds · lean: no.
     """
     args: dict = {"handle": str(handle), "dx": float(dx), "dy": float(dy)}
+    if scale is not None:
+        args["scale"] = float(scale)
     if props:
         args["props"] = props
     return await _spds(ctx, "clone", args)
+
+
+@cad_tool(
+    summary="Create a СПДС object of any class (e.g. a level mark) at a point.", cost="mutate"
+)
+@mcp.tool(
+    annotations={"title": "СПДС: Create By Class", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_create(
+    x: Annotated[float, "Where to put it: X"],
+    y: Annotated[float, "Where to put it: Y"],
+    like_handle: Annotated[
+        str | None, "Make one of the same class as this existing object (e.g. a level mark)"
+    ] = None,
+    class_id: Annotated[str | None, "Or the class_id that spds_list / spds_get report"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
+    props: Annotated[dict | None, "Parameters to set (see spds_get on one of the class)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A new СПДС object of a class MultiCAD.NET has no create call for —
+    отметка уровня above all — given by an existing object of that class
+    (`like_handle`) or by its `class_id`. It is created at the origin and moved
+    by (x, y). Returns the new `handle` and its parameters (a level mark's
+    `Text` shows the value it took). Pack: spds · lean: no.
+    """
+    if (like_handle is None) == (class_id is None):
+        raise ToolError("give exactly one of like_handle or class_id")
+    args: dict = {"at": _xy(x, y)}
+    if like_handle is not None:
+        args["like_handle"] = str(like_handle)
+    else:
+        args["class_id"] = str(class_id)
+    if scale is not None:
+        args["scale"] = float(scale)
+    if props:
+        args["props"] = props
+    return await _spds(ctx, "create", args)
 
 
 # ---------------------------------------------------------------------------

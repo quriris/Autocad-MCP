@@ -3,20 +3,19 @@
 
 1. Loads nanocad_plugin/bin/McpSpds.dll into the running nanoCAD (NETLOAD)
    unless it already answers, and pings it.
-2. READ-ONLY on the drawing you have open: lists its СПДС objects and reads
-   every parameter of one object of each class. This is how the parameter
-   names of the stamp fields and of the level mark are learned.
-3. In a NEW drawing: creates an A3 format, a position leader, a multilayer
-   leader and a break, copies one object, lists them — then closes that
-   drawing without saving.
+2. READ-ONLY on the drawing you have open: counts its СПДС objects by class
+   and takes the class of a level mark (nothing else of it goes in the report).
+3. In a NEW drawing: an A3 format at scale 1 with test stamp fields, a
+   position leader, a break and a copy of it, two level marks at y=0 and
+   y=3000 (to see how the mark takes its value) and an attempt to set one by
+   hand — then closes that drawing without saving.
 
 Open nanoCAD СПДС with one of your schemes (for step 2), then:
 
     .venv\\Scripts\\python scripts\\nanocad_spds_smoke.py
 
-The report (nanocad_spds_smoke_report.json) contains parameter VALUES of the
-open drawing's objects — the stamp's text, for instance. Look through it
-before sharing if the drawing is confidential, or open a copy.
+The report (nanocad_spds_smoke_report.json) holds only class counts from the
+open drawing; everything else in it comes from the new test drawing.
 """
 
 from __future__ import annotations
@@ -77,66 +76,100 @@ async def run(report: dict) -> None:
         report["plugin_log"] = spds_bridge.log_tail(lines=40)
         return
 
-    # 2. read-only on the open drawing
+    # 2. read-only on the open drawing: what is there, and the class of a level mark
     listed = await step("list (open drawing)", lambda: b.spds_call("list", {"limit": 5000}))
+    mark_class = None
     if listed:
-        one_per_class: dict[str, str] = {}
+        counts: dict[str, int] = {}
         for obj in listed.get("objects", []):
-            one_per_class.setdefault(obj.get("mc_class", "?"), obj["handle"])
-        report["classes_in_open_drawing"] = {
-            k: sum(1 for o in listed["objects"] if o.get("mc_class") == k) for k in one_per_class
-        }
-        if one_per_class:
-            await step(
-                "describe one of each class (open drawing)",
-                lambda: b.spds_call("describe", {"handles": list(one_per_class.values())}),
-            )
-    await step("formats (open drawing)", lambda: b.spds_call("formats"))
+            key = f"{obj.get('mc_class')} / {obj.get('type')}"
+            counts[key] = counts.get(key, 0) + 1
+            if mark_class is None and "уровн" in (obj.get("mc_class") or "").lower():
+                mark_class = obj.get("class_id")
+        report["classes_in_open_drawing"] = counts
+        report["level_mark_class_id"] = mark_class
+        # The listing is reported as counts only: positions and handles of the
+        # operator's own drawing are not needed in the report.
+        steps[-1]["result"] = {"total": listed.get("total")}
 
     # 3. create in a new drawing
     await step("drawing_new", lambda: b.drawing_new())
-    fmt = await step(
-        "format_create A3",
+    await step(
+        "format_create A3 scale 1 + stamp fields",
         lambda: b.spds_call(
             "format_create",
-            {"size": "A3", "origin": [0, 0, 0], "horizontal": True, "template": "SPDS"},
+            {
+                "size": "A3",
+                "origin": [0, 0, 0],
+                "horizontal": True,
+                "template": "SPDS",
+                "scale": 1,
+                "props": {
+                    "Designation": "ТЕСТ-001",
+                    "Drawing type": "Исполнительная схема (тест)",
+                    "Stage": "ИД",
+                    "Sheet": "1",
+                    "SheetCount": "1",
+                },
+            },
         ),
     )
     await step(
-        "note_position_create",
+        "note_position_create scale 1",
         lambda: b.spds_call(
             "note_position_create",
             {
                 "origin": [200, 150, 0],
-                "first_line": "1",
-                "second_line": "",
+                "first_line": "Узел 1",
                 "targets": [[150, 100, 0]],
-            },
-        ),
-    )
-    await step(
-        "note_multilayer_create",
-        lambda: b.spds_call(
-            "note_multilayer_create",
-            {
-                "start": [100, 200, 0],
-                "end": [160, 240, 0],
-                "lines": ["Бетон В15 - 100 мм", "Песок - 200 мм"],
+                "scale": 1,
             },
         ),
     )
     brk = await step(
-        "break_create",
+        "break_create scale 1",
         lambda: b.spds_call(
-            "break_create", {"start": [50, 50, 0], "end": [50, 120, 0], "type": "Linear"}
+            "break_create",
+            {"start": [50, 50, 0], "end": [50, 120, 0], "type": "Linear", "scale": 1},
         ),
     )
-    source = (brk or fmt or {}).get("handle") if isinstance(brk or fmt, dict) else None
-    if source:
+    if brk:
         await step(
-            "clone (+100, 0)",
-            lambda: b.spds_call("clone", {"handle": source, "dx": 100, "dy": 0}),
+            "clone break (+100, 0)",
+            lambda: b.spds_call("clone", {"handle": brk["handle"], "dx": 100, "dy": 0}),
         )
+    if mark_class:
+        m0 = await step(
+            "level mark create at y=0",
+            lambda: b.spds_call("create", {"class_id": mark_class, "at": [300, 0, 0], "scale": 1}),
+        )
+        m1 = await step(
+            "level mark create at y=3000",
+            lambda: b.spds_call(
+                "create", {"class_id": mark_class, "at": [300, 3000, 0], "scale": 1}
+            ),
+        )
+        if m1:
+            await step(
+                "level mark: Associative=false",
+                lambda: b.spds_call(
+                    "set", {"handle": m1["handle"], "props": {"Associative": False}}
+                ),
+            )
+            await step(
+                "level mark: describe after Associative=false",
+                lambda: b.spds_call("describe", {"handles": [m1["handle"]]}),
+            )
+            await step(
+                "level mark: try Text=+9,999",
+                lambda: b.spds_call("set", {"handle": m1["handle"], "props": {"Text": "+9,999"}}),
+            )
+        report["level_mark_texts"] = {
+            "y=0": ((m0 or {}).get("properties", {}).get("Text") or {}).get("value"),
+            "y=3000": ((m1 or {}).get("properties", {}).get("Text") or {}).get("value"),
+        }
+    else:
+        report["level_mark_class_id"] = "no level mark in the open drawing"
     await step("list (new drawing)", lambda: b.spds_call("list", {"limit": 100}))
     await step("screenshot", lambda: _shot(b))
     await step("close new drawing", lambda: b.drawing_close(save=False))

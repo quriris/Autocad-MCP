@@ -148,6 +148,7 @@ def test_spds_tools_form_their_own_pack():
         "spds_leader_create",
         "spds_break_create",
         "spds_clone",
+        "spds_create",
     }
 
 

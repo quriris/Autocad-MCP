@@ -3,7 +3,7 @@
   "schema_version": 1,
   "package_version": "1.6.0",
   "totals": {
-    "tools": 256,
+    "tools": 257,
     "resources": 8,
     "prompts": 5,
     "groups": 29
@@ -30,7 +30,7 @@
     "premium": 12,
     "sheet": 11,
     "solids": 5,
-    "spds": 9,
+    "spds": 10,
     "styles": 10,
     "system": 7,
     "templates": 2,
@@ -2864,6 +2864,21 @@
       ],
       "annotations": {
         "title": "СПДС: Clone Object",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Create a СПДС object of any class (e.g. a level mark) at a point.",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Create By Class",
         "readOnlyHint": false,
         "destructiveHint": false
       }

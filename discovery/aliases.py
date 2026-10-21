@@ -2642,6 +2642,16 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
     "spds_break_create": ToolAliases(
         synonyms=("break line", "break symbol", "разрыв", "линия обрыва", "обрыв"),
     ),
+    "spds_create": ToolAliases(
+        synonyms=(
+            "create level mark",
+            "new elevation mark",
+            "create spds object",
+            "поставить отметку уровня",
+            "создать отметку",
+            "создать объект спдс",
+        ),
+    ),
     "spds_clone": ToolAliases(
         synonyms=(
             "level mark",

@@ -72,7 +72,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.1.1";
+        public const string PluginVersion = "0.2.0";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -176,6 +176,8 @@ namespace McpSpds
                     return BreakCreate(a);
                 case "clone":
                     return Clone(a);
+                case "create":
+                    return CreateByClass(a);
                 default:
                     throw new ArgumentException("unknown op '" + op + "'");
             }
@@ -190,32 +192,72 @@ namespace McpSpds
         {
             string contains = Str(a, "class_contains", "").ToLowerInvariant();
             int limit = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("limit", out var l) ? l.GetInt32() : 2000;
+            // The active drawing only — model plus its sheets and layouts.
+            // (AllObjects reached every open drawing and returned blocks and
+            // sheets as class-less entries; measured on nanoCAD 24.1.)
             var filter = ObjectFilter.Create(false);
-            filter.AllObjects = true;
+            foreach (var doc in DrawingDocs())
+                filter.AddDoc(doc);
             var list = new List<object>();
             int total = 0;
+            var seen = new HashSet<long>();
             foreach (var id in filter.GetObjects())
             {
+                if (!seen.Add(id.Handle))
+                    continue;
+                McObject? obj;
+                try { obj = id.GetObject(); } catch { continue; }
+                if (obj is not McEntity e)
+                    continue;
                 string cls = id.ClassName ?? "";
-                if (contains.Length > 0 && !cls.ToLowerInvariant().Contains(contains))
+                string type = obj.GetType().Name;
+                if (contains.Length > 0
+                    && !cls.ToLowerInvariant().Contains(contains)
+                    && !type.ToLowerInvariant().Contains(contains))
                     continue;
                 total++;
                 if (list.Count >= limit)
                     continue;
-                var item = new Dictionary<string, object> { ["handle"] = Hex(id), ["mc_class"] = cls };
+                var item = new Dictionary<string, object>
+                {
+                    ["handle"] = Hex(id),
+                    ["mc_class"] = cls,
+                    ["type"] = type,
+                    ["class_id"] = obj.ClassID.ToString(),
+                };
                 try
                 {
-                    if (id.GetObject() is McEntity e)
-                    {
-                        item["layer"] = e.DbEntity.Layer;
-                        var bb = e.DbEntity.BoundingBox;
-                        item["bbox"] = new object[] { Pt(bb.MinPoint), Pt(bb.MaxPoint) };
-                    }
+                    item["layer"] = e.DbEntity.Layer;
+                    var bb = e.DbEntity.BoundingBox;
+                    item["bbox"] = new object[] { Pt(bb.MinPoint), Pt(bb.MaxPoint) };
                 }
                 catch { }
                 list.Add(item);
             }
             return new Dictionary<string, object> { ["total"] = total, ["objects"] = list };
+        }
+
+        static List<McDocument> DrawingDocs()
+        {
+            var docs = new List<McDocument>();
+            var top = McDocument.ActiveDocument?.TopDoc ?? McDocument.ActiveDocument;
+            if (top == null)
+                return docs;
+            docs.Add(top);
+            var ids = new List<McObjectId>();
+            try { ids.AddRange(top.GetSheets()); } catch { }
+            try { ids.AddRange(top.GetLayouts()); } catch { }
+            foreach (var id in ids)
+            {
+                try
+                {
+                    var d = McDocument.GetDocument(id);
+                    if (d != null && !docs.Contains(d))
+                        docs.Add(d);
+                }
+                catch { }
+            }
+            return docs;
         }
 
         static object Describe(JsonElement a)
@@ -243,6 +285,7 @@ namespace McpSpds
                 ["handle"] = handle,
                 ["class"] = obj.GetType().FullName ?? "",
                 ["mc_class"] = obj.ID.ClassName ?? "",
+                ["class_id"] = obj.ClassID.ToString(),
             };
             var ent = obj as McEntity;
             if (ent != null)
@@ -321,6 +364,7 @@ namespace McpSpds
                 f.Name = n.GetString() ?? "";
             f.Origin = P(a.GetProperty("origin"));
             f.DbEntity.AddToCurrentDocument();
+            ApplyScale(f, a);
             ApplyProps(f, a.TryGetProperty("props", out var p) ? p : default);
             Commit(f);
             return Created(f);
@@ -337,6 +381,7 @@ namespace McpSpds
             if (a.TryGetProperty("arrow", out var ar))
                 n.Arrow = (Arrows)Enum.Parse(typeof(Arrows), ar.GetString() ?? "Arrow", true);
             n.DbEntity.AddToCurrentDocument();
+            ApplyScale(n, a);
             if (a.TryGetProperty("targets", out var targets))
                 foreach (var t in targets.EnumerateArray())
                     n.Leader.AddSegment(n.Origin, P(t));
@@ -356,6 +401,7 @@ namespace McpSpds
                 foreach (var line in lines.EnumerateArray())
                     n.Units.Add(line.GetString() ?? "");
             n.DbEntity.AddToCurrentDocument();
+            ApplyScale(n, a);
             ApplyProps(n, a.TryGetProperty("props", out var p) ? p : default);
             Commit(n);
             return Created(n);
@@ -373,6 +419,7 @@ namespace McpSpds
             if (a.TryGetProperty("width", out var w))
                 b.Width = w.GetDouble();
             b.DbEntity.AddToCurrentDocument();
+            ApplyScale(b, a);
             ApplyProps(b, a.TryGetProperty("props", out var p) ? p : default);
             Commit(b);
             return Created(b);
@@ -388,12 +435,52 @@ namespace McpSpds
             var copy = (McDbObject)src.DbEntity.Clone(false);
             copy.AddToCurrentDocument();
             var copyEnt = copy.Entity;
+            ApplyScale(copyEnt, a);
             double dx = Num(a, "dx", 0), dy = Num(a, "dy", 0);
             if (dx != 0 || dy != 0)
                 copyEnt.DbEntity.Transform(Matrix3d.Displacement(new Vector3d(dx, dy, 0)));
             ApplyProps(copyEnt, a.TryGetProperty("props", out var p) ? p : default);
             Commit(copyEnt);
             return Created(copyEnt);
+        }
+
+        // Any MultiCAD entity by its class id (from spds_list / describe) or by
+        // the class of an existing object, e.g. a level mark, which has no
+        // MultiCAD.NET class of its own. Created at the origin, then moved so
+        // its insertion lands at `at` (the move is measured, not assumed).
+        static object CreateByClass(JsonElement a)
+        {
+            Guid classId;
+            if (a.TryGetProperty("like_handle", out var like))
+                classId = Resolve(like.GetString() ?? "").ClassID;
+            else
+                classId = Guid.Parse(Str(a, "class_id", ""));
+            var created = McObjectManager.Create(classId) as McEntity
+                ?? throw new ArgumentException("class " + classId + " is not a MultiCAD entity");
+            created.DbEntity.AddToCurrentDocument();
+            ApplyScale(created, a);
+            if (a.TryGetProperty("at", out var at))
+            {
+                var p = P(at);
+                if (p.X != 0 || p.Y != 0)
+                    created.DbEntity.Transform(Matrix3d.Displacement(new Vector3d(p.X, p.Y, 0)));
+            }
+            ApplyProps(created, a.TryGetProperty("props", out var pr) ? pr : default);
+            Commit(created);
+            return Created(created);
+        }
+
+        // "Scale" is the annotation scale every СПДС object carries; a new
+        // object otherwise takes the drawing's current one (1:100 in the СПДС
+        // template, which drew an A3 format 42000 wide on nanoCAD 24.1).
+        static void ApplyScale(McObject obj, JsonElement a)
+        {
+            if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty("scale", out var s))
+                return;
+            var src = Source(obj);
+            var p = src?.ObjectProperties.GetProperty("Scale");
+            if (p != null && !p.IsReadOnly)
+                p.SetValue(s.GetDouble());
         }
 
         // -- helpers ------------------------------------------------------------
