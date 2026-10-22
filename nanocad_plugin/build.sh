@@ -23,5 +23,5 @@ dotnet "$CSC" -nologo -noconfig -nostdlib -target:library -langversion:10 \
   -nullable:enable -platform:x64 -optimize -deterministic \
   "${refs[@]}" "-r:$NANOCAD_BIN/mapimgd.dll" "-r:$NANOCAD_BIN/mapibasetypes.dll" \
   "-r:$NANOCAD_HOST/hostdbmgd.dll" "-r:$NANOCAD_HOST/hostmgd.dll" \
-  -out:"$here/bin/McpSpds.dll" "$here/McpSpds/McpSpds.cs"
+  -out:"$here/bin/McpSpds.dll" "$here"/McpSpds/*.cs
 echo "built $here/bin/McpSpds.dll"

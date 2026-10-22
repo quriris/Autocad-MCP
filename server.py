@@ -1001,7 +1001,7 @@ LEAN_TOOL_NAMES = frozenset(
         # client draws formats, stamps, leaders, breaks and level marks, and
         # had no way to reach them (measured: TOOL_PROFILE=lean hid every
         # spds_* tool). `spds`-pack tools, so TOOL_PACKS=core hides them;
-        # lean is 78.
+        # lean is 84.
         "spds_status",
         "spds_plugin_load",
         "spds_list",
@@ -1015,6 +1015,12 @@ LEAN_TOOL_NAMES = frozenset(
         "spds_level_mark_create",
         "spds_inspect",
         "spds_stamp_text_height",
+        "spds_classes",
+        "spds_native_classes",
+        "spds_object_create",
+        "spds_invoke",
+        "spds_axis_create",
+        "spds_axis_grid_create",
     }
 )
 
@@ -1135,6 +1141,12 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "spds_level_mark_create",
             "spds_inspect",
             "spds_stamp_text_height",
+            "spds_classes",
+            "spds_native_classes",
+            "spds_object_create",
+            "spds_invoke",
+            "spds_axis_create",
+            "spds_axis_grid_create",
         }
     ),
 }
@@ -11770,7 +11782,7 @@ TIPS:
 """
 
 
-# ── SECTION 28: nanoCAD СПДС Objects (13 tools) ─────────────────────────────
+# ── SECTION 28: nanoCAD СПДС Objects (19 tools) ─────────────────────────────
 #
 # Formats with their stamp, leaders, breaks, level marks... are MultiCAD
 # objects: plain ActiveX sees them as anonymous entities and can neither read
@@ -11807,8 +11819,10 @@ def _spds_backend(ctx: Context):
     return backend
 
 
-async def _spds(ctx: Context, op: str, args: dict | None = None):
+async def _spds(ctx: Context, op: str, args: dict | None = None, timeout: float | None = None):
     try:
+        if timeout is not None:
+            return await _spds_backend(ctx).spds_call(op, args, timeout=timeout)
         return await _spds_backend(ctx).spds_call(op, args)
     except (RuntimeError, TimeoutError, FileNotFoundError) as exc:
         raise ToolError(str(exc)) from exc
@@ -12258,6 +12272,238 @@ async def spds_level_mark_create(
     if merged:
         args["props"] = merged
     return await _spds(ctx, "create", args)
+
+
+# -- every СПДС object: the catalogue, any class by name, steps -------------
+#
+# MultiCAD.NET has a class for most СПДС objects (axes and axis grids, section
+# and view marks, node marks, chain / comb / knot / secant leaders, linear
+# marks, rooms, walls, windows, doors, columns, stairs, tables, roughness,
+# welds...). The plugin reaches all of them by reflection, so a class nanoCAD
+# adds later is reachable without a new tool.
+
+
+def _steps_arg(steps: list | None) -> list:
+    out: list = []
+    for i, step in enumerate(steps or []):
+        if not isinstance(step, dict) or not ({"set", "get", "call"} & step.keys()):
+            raise ToolError(f"step {i} needs one of set / get / call: {step!r}")
+        if "set" in step and "value" not in step:
+            raise ToolError(f"step {i} sets {step['set']!r} but has no value")
+        out.append(step)
+    return out
+
+
+@cad_tool(summary="Catalogue of СПДС object classes nanoCAD can create, with their members.", cost="read")
+@mcp.tool(
+    annotations={"title": "СПДС: Object Classes", "readOnlyHint": True},
+    tags={"spds", "query"},
+)
+async def spds_classes(
+    filter: Annotated[
+        str | None, "Part of the class name, e.g. 'Note', 'Axis', 'Architecture', 'Section'"
+    ] = None,
+    members: Annotated[bool, "List each class's properties (type, writable, enum values)"] = True,
+    methods: Annotated[bool, "Also list methods with their parameters"] = False,
+    all_types: Annotated[
+        bool, "Every public MultiCAD type (helpers, enums), not only creatable objects"
+    ] = False,
+    ctx: Context = None,
+) -> dict:
+    """Every СПДС / MultiCAD object class that `spds_object_create` can make,
+    read live from nanoCAD: `class`, `full_name`, `base` and its `members`
+    (`name`, `type`, `writable`, enum `values`). Use a `filter` — the whole list
+    is long. Objects with no class here (the level mark...) are in
+    `spds_native_classes`. Pack: spds · lean: yes.
+    """
+    args: dict = {"members": bool(members), "methods": bool(methods), "all_types": bool(all_types)}
+    if filter:
+        args["filter"] = filter
+    return await _spds(ctx, "classes", args)
+
+
+@cad_tool(summary="СПДС object classes nanoCAD registered natively (class ids for spds_create).", cost="read")
+@mcp.tool(
+    annotations={"title": "СПДС: Native Classes", "readOnlyHint": True},
+    tags={"spds", "query"},
+)
+async def spds_native_classes(
+    refresh: Annotated[bool, "Scan again instead of using the saved list"] = False,
+    ctx: Context = None,
+) -> dict:
+    """Every class nanoCAD has registered, found by reading class ids out of
+    nanoCAD's СПДС modules and asking nanoCAD to name each: `class_id`, `name`,
+    `module`, and `net_class` when MultiCAD.NET wraps it. A class with no
+    `net_class` (the level mark...) is created with `spds_create(class_id=...)`.
+    The first scan takes a while; the result is saved. Pack: spds · lean: yes.
+    """
+    return await _spds(ctx, "native_classes", {"refresh": bool(refresh)}, timeout=300.0)
+
+
+@cad_tool(summary="Create any СПДС object by class name (axis, section mark, room, wall...).", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Create Object", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_object_create(
+    class_name: Annotated[
+        str,
+        "MultiCAD class from spds_classes, e.g. McSectionVS, McNoteChain, McSpdsNode, McPTWall",
+    ],
+    init: Annotated[
+        dict | None,
+        "Members set before it enters the drawing: {member: value}. Points are [x, y], "
+        "enums by name (the tail after '_' is enough), objects by handle",
+    ] = None,
+    steps: Annotated[
+        list | None,
+        "Then, in order: {'set': 'a.b', 'value': v} | {'call': 'a.b', 'args': [...]} | "
+        "{'get': 'a.b'} — dotted paths through members, [i] indexes",
+    ] = None,
+    props: Annotated[dict | None, "Finally nanoCAD's parameter list (names as spds_get shows)"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
+    layer: Annotated[str | None, "Layer to put it on"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A new СПДС object of any MultiCAD.NET class (see `spds_classes`):
+    `init` members are set first (geometry: Origin, Start/End, FirstPnt...),
+    then it is added to the drawing, scaled, `steps` run, `props` written.
+    Leaders get their lines with a step such as
+    `{'call': 'Leader.AddSegment', 'args': [[x0, y0], [x1, y1]]}`.
+    Returns the new `handle`, its parameters and each step's result.
+    Pack: spds · lean: yes.
+    """
+    args: dict = {"class": str(class_name), "steps": _steps_arg(steps)}
+    if init:
+        args["init"] = init
+    if props:
+        args["props"] = props
+    if scale is not None:
+        args["scale"] = float(scale)
+    if layer:
+        args["layer"] = str(layer)
+    return await _spds(ctx, "new", args)
+
+
+@cad_tool(summary="Run set / call / get steps on an existing СПДС object.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Invoke On Object", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "modify"},
+)
+async def spds_invoke(
+    handle: Annotated[str, "The СПДС object"],
+    steps: Annotated[
+        list,
+        "{'set': 'a.b', 'value': v} | {'call': 'a.b', 'args': [...]} | {'get': 'a.b'}",
+    ],
+    props: Annotated[dict | None, "Then nanoCAD's parameter list (names as spds_get shows)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """What `spds_set` cannot reach: the object's own MultiCAD.NET members and
+    methods — an axis grid's spacing (`getAxisMethods` + `setDistance`), a
+    marker's text, a section's points. A `get` step reads without changing.
+    Returns each step's result and the object's parameters. Pack: spds · lean: yes.
+    """
+    args: dict = {"handle": str(handle), "steps": _steps_arg(steps)}
+    if props:
+        args["props"] = props
+    return await _spds(ctx, "invoke", args)
+
+
+@cad_tool(summary="Place a СПДС building axis (строительная ось) with its marker.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Axis", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_axis_create(
+    start_x: Annotated[float, "Axis start X (the marker end)"],
+    start_y: Annotated[float, "Axis start Y"],
+    end_x: Annotated[float, "Axis end X"],
+    end_y: Annotated[float, "Axis end Y"],
+    name: Annotated[str | None, "Marker text, e.g. '1' or 'А'"] = None,
+    markers: Annotated[list[str] | None, "Several marker texts instead of one name"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
+    layer: Annotated[str | None, "Layer"] = None,
+    props: Annotated[dict | None, "More parameters by name (see spds_get on an axis)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """One nanoCAD СПДС axis — the real object, with its marker circle, not
+    lines and a circle. For a whole grid of axes use `spds_axis_grid_create`.
+    Pack: spds · lean: yes.
+    """
+    args: dict = {"start": _xy(start_x, start_y), "end": _xy(end_x, end_y)}
+    if markers:
+        args["markers"] = [str(m) for m in markers]
+    elif name:
+        args["name"] = str(name)
+    if scale is not None:
+        args["scale"] = float(scale)
+    if layer:
+        args["layer"] = str(layer)
+    if props:
+        args["props"] = props
+    return await _spds(ctx, "axis_create", args)
+
+
+_SPDS_MARKER_POSITIONS = (
+    "left", "right", "top", "bottom", "top_and_bottom", "left_and_right", "hidden", "mixed"
+)
+
+
+@cad_tool(summary="Place a СПДС grid of building axes (массив осей) with dimensions.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Axis Grid", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_axis_grid_create(
+    base_x: Annotated[float, "Where the first axes cross: X"],
+    base_y: Annotated[float, "Where the first axes cross: Y"],
+    x_spacings: Annotated[
+        list[float], "Distances between the vertical axes, left to right (empty: one axis)"
+    ],
+    y_spacings: Annotated[
+        list[float], "Distances between the horizontal axes, bottom to top (empty: one axis)"
+    ],
+    x_names: Annotated[list[str] | None, "Vertical axis names; default 1, 2, 3..."] = None,
+    y_names: Annotated[list[str] | None, "Horizontal axis names; default А, Б, В..."] = None,
+    overhang: Annotated[float, "How far the axes run past the outermost ones"] = 1500.0,
+    dim_chain: Annotated[bool | None, "Chain dimensions between the axes"] = None,
+    dim_total: Annotated[bool | None, "Overall dimension"] = None,
+    markers_position: Annotated[str | None, f"One of {', '.join(_SPDS_MARKER_POSITIONS)}"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
+    layer: Annotated[str | None, "Layer"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A nanoCAD СПДС rectangular axis grid — one object holding all the axes,
+    their markers and dimensions, as nanoCAD's "Оси" → "Массив осей" makes it.
+    Vertical axes stand at base_x plus the running sum of `x_spacings`,
+    horizontal ones at base_y plus `y_spacings`. Names follow ГОСТ 21.101
+    (letters without Ё З Й О Х Ц Ч Щ Ъ Ы Ь). Returns the grid's `handle` and,
+    per direction, the names and distances nanoCAD holds. Pack: spds · lean: yes.
+    """
+    if markers_position is not None and markers_position not in _SPDS_MARKER_POSITIONS:
+        raise ToolError(f"markers_position must be one of {', '.join(_SPDS_MARKER_POSITIONS)}")
+    args: dict = {
+        "base": _xy(base_x, base_y),
+        "x_spacings": [float(v) for v in x_spacings],
+        "y_spacings": [float(v) for v in y_spacings],
+        "overhang": float(overhang),
+    }
+    if x_names:
+        args["x_names"] = [str(v) for v in x_names]
+    if y_names:
+        args["y_names"] = [str(v) for v in y_names]
+    if dim_chain is not None:
+        args["dim_chain"] = bool(dim_chain)
+    if dim_total is not None:
+        args["dim_total"] = bool(dim_total)
+    if markers_position is not None:
+        args["markers_position"] = markers_position
+    if scale is not None:
+        args["scale"] = float(scale)
+    if layer:
+        args["layer"] = str(layer)
+    return await _spds(ctx, "axis_grid_create", args)
 
 
 # ---------------------------------------------------------------------------

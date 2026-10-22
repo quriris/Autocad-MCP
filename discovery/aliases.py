@@ -2662,6 +2662,75 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "шрифт штампа",
         ),
     ),
+    "spds_classes": ToolAliases(
+        synonyms=(
+            "spds object types",
+            "what spds objects exist",
+            "список объектов спдс",
+            "классы объектов спдс",
+            "какие объекты есть в спдс",
+        ),
+    ),
+    "spds_native_classes": ToolAliases(
+        synonyms=(
+            "spds class ids",
+            "registered multicad classes",
+            "идентификаторы классов спдс",
+        ),
+    ),
+    "spds_object_create": ToolAliases(
+        synonyms=(
+            "section mark",
+            "view mark",
+            "node mark",
+            "chain leader",
+            "comb leader",
+            "room label",
+            "wall",
+            "window",
+            "door",
+            "stair",
+            "обозначение разреза",
+            "обозначение вида",
+            "обозначение узла",
+            "цепная выноска",
+            "гребенчатая выноска",
+            "узловая выноска",
+            "помещение",
+            "стена",
+            "окно",
+            "дверь",
+            "лестница",
+        ),
+    ),
+    "spds_invoke": ToolAliases(
+        synonyms=(
+            "call method on spds object",
+            "change axis spacing",
+            "изменить объект спдс",
+            "шаг осей",
+        ),
+    ),
+    "spds_axis_create": ToolAliases(
+        synonyms=(
+            "building axis",
+            "grid line",
+            "axis bubble",
+            "строительная ось",
+            "ось с маркером",
+            "координационная ось",
+        ),
+    ),
+    "spds_axis_grid_create": ToolAliases(
+        synonyms=(
+            "axis grid",
+            "structural grid",
+            "column grid",
+            "массив осей",
+            "сетка осей",
+            "координационные оси",
+        ),
+    ),
     "spds_inspect": ToolAliases(
         synonyms=(
             "inspect spds object",

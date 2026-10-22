@@ -3,7 +3,7 @@
   "schema_version": 1,
   "package_version": "1.6.0",
   "totals": {
-    "tools": 260,
+    "tools": 266,
     "resources": 8,
     "prompts": 5,
     "groups": 29
@@ -30,7 +30,7 @@
     "premium": 12,
     "sheet": 11,
     "solids": 5,
-    "spds": 13,
+    "spds": 19,
     "styles": 10,
     "system": 7,
     "templates": 2,
@@ -2839,6 +2839,36 @@
       }
     },
     {
+      "name": "spds_axis_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Place a СПДС building axis (строительная ось) with its marker.",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Axis",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_axis_grid_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Place a СПДС grid of building axes (массив осей) with dimensions.",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Axis Grid",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
       "name": "spds_break_create",
       "group": "spds",
       "cost": "mutate",
@@ -2851,6 +2881,20 @@
         "title": "СПДС: Create Break",
         "readOnlyHint": false,
         "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_classes",
+      "group": "spds",
+      "cost": "read",
+      "summary": "Catalogue of СПДС object classes nanoCAD can create, with their members.",
+      "tags": [
+        "query",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Object Classes",
+        "readOnlyHint": true
       }
     },
     {
@@ -2927,6 +2971,21 @@
       }
     },
     {
+      "name": "spds_invoke",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Run set / call / get steps on an existing СПДС object.",
+      "tags": [
+        "modify",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Invoke On Object",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
       "name": "spds_leader_create",
       "group": "spds",
       "cost": "mutate",
@@ -2968,6 +3027,35 @@
       "annotations": {
         "title": "СПДС: List Objects",
         "readOnlyHint": true
+      }
+    },
+    {
+      "name": "spds_native_classes",
+      "group": "spds",
+      "cost": "read",
+      "summary": "СПДС object classes nanoCAD registered natively (class ids for spds_create).",
+      "tags": [
+        "query",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Native Classes",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "spds_object_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Create any СПДС object by class name (axis, section mark, room, wall...).",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Create Object",
+        "readOnlyHint": false,
+        "destructiveHint": false
       }
     },
     {

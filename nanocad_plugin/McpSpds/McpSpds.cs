@@ -71,9 +71,9 @@ namespace McpSpds
         public void Terminate() { }
     }
 
-    public class Commands
+    public partial class Commands
     {
-        public const string PluginVersion = "0.2.7";
+        public const string PluginVersion = "0.3.0";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -185,6 +185,18 @@ namespace McpSpds
                     return Inspect(a);
                 case "cell_text_height":
                     return CellTextHeight(a);
+                case "classes":
+                    return Classes(a);
+                case "native_classes":
+                    return NativeClasses(a);
+                case "new":
+                    return NewObject(a);
+                case "invoke":
+                    return Invoke(a);
+                case "axis_create":
+                    return AxisCreate(a);
+                case "axis_grid_create":
+                    return AxisGridCreate(a);
                 default:
                     throw new ArgumentException("unknown op '" + op + "'");
             }

@@ -152,6 +152,12 @@ def test_spds_tools_form_their_own_pack():
         "spds_level_mark_create",
         "spds_inspect",
         "spds_stamp_text_height",
+        "spds_classes",
+        "spds_native_classes",
+        "spds_object_create",
+        "spds_invoke",
+        "spds_axis_create",
+        "spds_axis_grid_create",
     }
 
 
@@ -178,3 +184,92 @@ def test_level_text_is_spelled_like_nanocad(value, text):
     import server
 
     assert server.spds_level_text(value) == text
+
+
+# -- the generic object tools: what reaches the plugin ---------------------------
+
+
+def _tool_fn(tool):
+    return getattr(tool, "fn", tool)
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    import server
+
+    calls: list = []
+
+    async def fake(ctx, op, args=None, timeout=None):
+        calls.append((op, args, timeout))
+        return {"handle": "1A"}
+
+    monkeypatch.setattr(server, "_spds", fake)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_axis_grid_sends_spacings_and_names(sent):
+    import server
+
+    await _tool_fn(server.spds_axis_grid_create)(
+        base_x=100, base_y=200, x_spacings=[4500, 4500], y_spacings=[8600],
+        y_names=["А", "Б"], dim_chain=True, markers_position="bottom", scale=100,
+    )
+    op, args, _ = sent[0]
+    assert op == "axis_grid_create"
+    assert args["base"] == [100.0, 200.0, 0.0]
+    assert args["x_spacings"] == [4500.0, 4500.0] and args["y_spacings"] == [8600.0]
+    assert args["y_names"] == ["А", "Б"] and "x_names" not in args
+    assert args["dim_chain"] is True and args["markers_position"] == "bottom"
+    assert args["scale"] == 100.0
+
+
+@pytest.mark.asyncio
+async def test_axis_grid_refuses_an_unknown_marker_position(sent):
+    import server
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="markers_position"):
+        await _tool_fn(server.spds_axis_grid_create)(
+            base_x=0, base_y=0, x_spacings=[], y_spacings=[], markers_position="up"
+        )
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_object_create_passes_class_init_steps(sent):
+    import server
+
+    steps = [{"call": "Leader.AddSegment", "args": [[0, 0], [10, 10]]}, {"get": "Origin"}]
+    await _tool_fn(server.spds_object_create)(
+        class_name="McNoteChain", init={"Origin": [5, 5]}, steps=steps, layer="АР_Текст"
+    )
+    op, args, _ = sent[0]
+    assert op == "new"
+    assert args == {
+        "class": "McNoteChain",
+        "steps": steps,
+        "init": {"Origin": [5, 5]},
+        "layer": "АР_Текст",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad", [[{"value": 1}], [{"set": "Text"}], ["Text"]], ids=["no-verb", "set-no-value", "not-a-dict"]
+)
+async def test_steps_are_checked_before_nanocad_sees_them(sent, bad):
+    import server
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="step 0"):
+        await _tool_fn(server.spds_invoke)(handle="1A", steps=bad)
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_native_class_scan_gets_a_long_timeout(sent):
+    import server
+
+    await _tool_fn(server.spds_native_classes)()
+    assert sent[0][0] == "native_classes" and sent[0][2] >= 120

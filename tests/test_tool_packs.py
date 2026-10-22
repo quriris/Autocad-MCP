@@ -308,7 +308,7 @@ async def test_lean_carries_the_five_settings_essentials_and_nothing_from_the_se
     assert server.LEAN_TOOL_NAMES & UNDERSTAND_TOOLS == LEAN_UNDERSTAND_ESSENTIALS
     assert not (PLANT_TOOLS & server.LEAN_TOOL_NAMES)
     assert not (SETTINGS_TOOLS & server.LEAN_TOOL_NAMES)
-    assert len(server.LEAN_TOOL_NAMES) == 78
+    assert len(server.LEAN_TOOL_NAMES) == 84
     assert server.PACK_TOOL_NAMES["spds"] <= server.LEAN_TOOL_NAMES
     monkeypatch.setattr(config.settings, "tool_packs", "core")
     info = await server._apply_tool_profile("lean")
@@ -316,8 +316,8 @@ async def test_lean_carries_the_five_settings_essentials_and_nothing_from_the_se
     assert not (LEAN_SETTINGS_ESSENTIALS & disabled)
     assert not ({"sheet_frame", "titleblock_apply"} & disabled), "sheet tools are core"
     assert "drawing_understand" not in disabled, "the one-call report is core"
-    assert info["enabled_count"] == 78 - 10 - 13, (
-        "lean minus the three pid, three mech, four arch and thirteen spds tools"
+    assert info["enabled_count"] == 84 - 10 - 19, (
+        "lean minus the three pid, three mech, four arch and nineteen spds tools"
     )
 
 
