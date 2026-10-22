@@ -73,7 +73,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.5";
+        public const string PluginVersion = "0.2.6";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -183,6 +183,8 @@ namespace McpSpds
                     return ProjectInfo(a);
                 case "inspect":
                     return Inspect(a);
+                case "cell_text_height":
+                    return CellTextHeight(a);
                 default:
                     throw new ArgumentException("unknown op '" + op + "'");
             }
@@ -686,6 +688,96 @@ namespace McpSpds
             }
             catch (Exception ex) { d["serialize_error"] = ex.Message; }
             return d;
+        }
+
+        // A stamp cell's text height (nanoCAD's "Настройка текста" dialog) has
+        // no API. It is kept in the format's own data as a cell record right
+        // after the cell's text: 0B 02 0D 26 02 7D, then three doubles each
+        // tagged 06 — the cell's y, x and text height (measured on nanoCAD
+        // 24.1: ComplexName 37.5 / 116.81 / 3.5, the same format set to 1.5 mm
+        // by hand stored 1.5). The format is serialized, that double patched,
+        // a new format created from the bytes and the old one erased — so the
+        // handle changes and is returned.
+        static readonly byte[] CellMark = { 0x0B, 0x02, 0x0D, 0x26, 0x02, 0x7D };
+
+        static object CellTextHeight(JsonElement a)
+        {
+            string handle = a.GetProperty("handle").GetString() ?? "";
+            string field = Str(a, "field", "ComplexName");
+            double height = a.GetProperty("height").GetDouble();
+            if (height <= 0 || height > 20)
+                throw new ArgumentException("height must be between 0 and 20 mm");
+            var obj = Resolve(handle) as McEntity
+                ?? throw new ArgumentException("object " + handle + " is not a MultiCAD entity");
+            var prop = obj.DbObject.ObjectProperties.GetProperty(field)
+                ?? throw new ArgumentException("unknown field '" + field + "'");
+            string value = Convert.ToString(prop.GetValue(), CultureInfo.InvariantCulture) ?? "";
+            if (value.Length == 0)
+                throw new ArgumentException("field '" + field + "' is empty; fill it first");
+
+            byte[] bytes = obj.DbEntity.SerializeToBytes();
+            int at = FindCellHeight(bytes, value, out double old);
+            if (at < 0)
+                throw new ArgumentException("no cell record for '" + field + "' in this format "
+                    + "(nanoCAD keeps one only for cells with their own text settings)");
+            Array.Copy(BitConverter.GetBytes(height), 0, bytes, at, 8);
+
+            var copy = McDbEntity.DeserializeNewFromBytes(bytes)
+                ?? throw new InvalidOperationException("nanoCAD did not rebuild the format from its data");
+            if (!copy.AddToCurrentDocument())
+                throw new InvalidOperationException("nanoCAD did not add the rebuilt format");
+            var copyEnt = copy.Entity;
+            Commit(copyEnt);
+            double now = double.NaN;
+            try { FindCellHeight(copyEnt.DbEntity.SerializeToBytes(), value, out now); } catch { }
+            McObjectManager.Erase(obj.ID);
+            McObjectManager.UpdateAll();
+            return new Dictionary<string, object>
+            {
+                ["old_handle"] = handle,
+                ["handle"] = Hex(copyEnt.ID),
+                ["field"] = field,
+                ["height_before"] = old,
+                ["height_after"] = double.IsNaN(now) ? "unreadable" : now,
+            };
+        }
+
+        static int FindCellHeight(byte[] bytes, string text, out double height)
+        {
+            height = double.NaN;
+            var pat = Encoding.Unicode.GetBytes(text);
+            for (int i = IndexOf(bytes, pat, 0); i >= 0; i = IndexOf(bytes, pat, i + 1))
+            {
+                int end = i + pat.Length;
+                int mark = IndexOf(bytes, CellMark, end);
+                if (mark < 0 || mark - end > 160)
+                    continue;
+                int k = mark + CellMark.Length, found = 0;
+                while (k + 9 <= bytes.Length && k < mark + 80)
+                {
+                    if (bytes[k] == 0x06)
+                    {
+                        found++;
+                        if (found == 3)
+                        {
+                            height = BitConverter.ToDouble(bytes, k + 1);
+                            return k + 1;
+                        }
+                        k += 9;
+                    }
+                    else
+                        k++;
+                }
+            }
+            return -1;
+        }
+
+        static int IndexOf(byte[] hay, byte[] needle, int from)
+        {
+            for (int i = Math.Max(0, from); i + needle.Length <= hay.Length; i++)
+                if (Match(hay, i, needle))
+                    return i;
+            return -1;
         }
 
         static bool Match(byte[] b, int at, byte[] pat)

@@ -3,7 +3,7 @@
   "schema_version": 1,
   "package_version": "1.6.0",
   "totals": {
-    "tools": 259,
+    "tools": 260,
     "resources": 8,
     "prompts": 5,
     "groups": 29
@@ -30,7 +30,7 @@
     "premium": 12,
     "sheet": 11,
     "solids": 5,
-    "spds": 12,
+    "spds": 13,
     "styles": 10,
     "system": 7,
     "templates": 2,
@@ -2996,6 +2996,21 @@
       ],
       "annotations": {
         "title": "СПДС: Set Parameters",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_stamp_text_height",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Set the text height of a stamp cell (e.g. the address, 2.5 mm).",
+      "tags": [
+        "modify",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Stamp Cell Text Height",
         "readOnlyHint": false,
         "destructiveHint": false
       }

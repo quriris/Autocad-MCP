@@ -151,6 +151,7 @@ def test_spds_tools_form_their_own_pack():
         "spds_create",
         "spds_level_mark_create",
         "spds_inspect",
+        "spds_stamp_text_height",
     }
 
 

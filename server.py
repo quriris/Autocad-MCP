@@ -1001,7 +1001,7 @@ LEAN_TOOL_NAMES = frozenset(
         # client draws formats, stamps, leaders, breaks and level marks, and
         # had no way to reach them (measured: TOOL_PROFILE=lean hid every
         # spds_* tool). `spds`-pack tools, so TOOL_PACKS=core hides them;
-        # lean is 77.
+        # lean is 78.
         "spds_status",
         "spds_plugin_load",
         "spds_list",
@@ -1014,6 +1014,7 @@ LEAN_TOOL_NAMES = frozenset(
         "spds_create",
         "spds_level_mark_create",
         "spds_inspect",
+        "spds_stamp_text_height",
     }
 )
 
@@ -1133,6 +1134,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "spds_create",
             "spds_level_mark_create",
             "spds_inspect",
+            "spds_stamp_text_height",
         }
     ),
 }
@@ -11768,7 +11770,7 @@ TIPS:
 """
 
 
-# ── SECTION 28: nanoCAD СПДС Objects (12 tools) ─────────────────────────────
+# ── SECTION 28: nanoCAD СПДС Objects (13 tools) ─────────────────────────────
 #
 # Formats with their stamp, leaders, breaks, level marks... are MultiCAD
 # objects: plain ActiveX sees them as anonymous entities and can neither read
@@ -11893,6 +11895,40 @@ async def spds_get(
     if not handles:
         raise ToolError("handles is empty")
     return await _spds(ctx, "describe", {"handles": [str(h) for h in handles]})
+
+
+@cad_tool(summary="Set the text height of a stamp cell (e.g. the address, 2.5 mm).", cost="mutate")
+@mcp.tool(
+    annotations={
+        "title": "СПДС: Stamp Cell Text Height",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+    },
+    tags={"spds", "modify"},
+)
+async def spds_stamp_text_height(
+    handle: Annotated[str, "The format (spds_list class_contains='Формат')"],
+    height: Annotated[float, "Text height in mm, e.g. 2.5"] = 2.5,
+    field: Annotated[
+        str, "Stamp field whose cell to change (ComplexName = the address)"
+    ] = "ComplexName",
+    ctx: Context = None,
+) -> dict:
+    """What nanoCAD's «Настройка текста» dialog does on a stamp cell: sets the
+    cell's text height. nanoCAD has no API for it, so the format is rebuilt
+    from its own data with that one number changed and the old one removed —
+    the format gets a NEW `handle` (returned with `old_handle`). Works on cells
+    that carry their own text settings (the address does; nanoCAD 24.1
+    defaults it to 3.5 mm). Returns `height_before` / `height_after`. Pack:
+    spds · lean: no.
+    """
+    if not 0 < height <= 20:
+        raise ToolError("height must be between 0 and 20 mm")
+    return await _spds(
+        ctx,
+        "cell_text_height",
+        {"handle": str(handle), "field": field, "height": float(height)},
+    )
 
 
 @cad_tool(summary="Diagnose a СПДС object beyond its parameter list.", cost="read")
