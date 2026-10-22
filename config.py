@@ -76,7 +76,9 @@ class Settings:
         raw_paths = os.environ.get("ALLOWED_PATHS", "").strip()
         self.allowed_paths: list[Path] = []
         if raw_paths:
-            for p in raw_paths.split(","):
+            # "," or ";" (the Windows PATH habit: C:\\Users\\me\\Documents;F:\\);
+            # with ";" alone the whole list read as one non-existent folder.
+            for p in raw_paths.replace(";", ",").split(","):
                 p = p.strip()
                 if p:
                     self.allowed_paths.append(Path(p).resolve())

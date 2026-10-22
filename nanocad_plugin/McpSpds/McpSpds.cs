@@ -73,7 +73,7 @@ namespace McpSpds
 
     public partial class Commands
     {
-        public const string PluginVersion = "0.3.1";
+        public const string PluginVersion = "0.3.2";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 

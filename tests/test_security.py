@@ -392,3 +392,17 @@ class TestCommandVerbScoping:
     def test_command_verbs_strips_every_decorator(self):
         assert command_verbs("_-PURGE") == ["PURGE"]
         assert command_verbs("'_ZOOM E;.REGEN") == ["ZOOM", "REGEN"]
+
+
+def test_allowed_paths_accept_semicolons(tmp_path, monkeypatch):
+    """`C:\\Users\\me\\Documents;F:\\` — the Windows PATH habit — is two folders,
+    not one folder named with a semicolon (measured: every save was refused)."""
+    from config import Settings
+
+    a, b = tmp_path / "docs", tmp_path / "drive"
+    a.mkdir()
+    b.mkdir()
+    monkeypatch.setenv("ALLOWED_PATHS", f"{a};{b}")
+    assert Settings().allowed_paths == [a.resolve(), b.resolve()]
+    monkeypatch.setenv("ALLOWED_PATHS", f"{a}, {b}")
+    assert Settings().allowed_paths == [a.resolve(), b.resolve()]

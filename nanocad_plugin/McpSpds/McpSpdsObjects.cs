@@ -603,9 +603,22 @@ namespace McpSpds
                 throw new InvalidOperationException("nanoCAD did not add the room");
             room.Loops.Add(new LocationLoops(pl));
             room.DbEntity.Update();
+            // A room shows nothing until it has a label marker (measured:
+            // correct area, empty bounding box, nothing drawn).
+            if (room is Multicad.Architecture.McRoom rr && Bool(a, "labels", true))
+            {
+                var tp = room.TextPosition;
+                double step = 9 * Num(a, "scale", 100);
+                rr.AddStandardMarkerAtLocation(Multicad.Architecture.McRoomDrawType.LabelRoomNameAndArea, tp);
+                rr.AddStandardMarkerAtLocation(Multicad.Architecture.McRoomDrawType.LabelRoomNumber,
+                    new Point3d(tp.X, tp.Y - step, tp.Z));
+                room.DbEntity.Update();
+            }
             var d = Finish(room, a);
-            d["area_m2"] = Math.Round(room.Area / 1e6, 2);
-            d["perimeter_m"] = Math.Round(room.Perimetr / 1e3, 2);
+            // Area and Perimetr come in m² and m (measured: a 5.6 x 5.6 m
+            // contour read 31.36 and 22.4).
+            d["area_m2"] = Math.Round(room.Area, 2);
+            d["perimeter_m"] = Math.Round(room.Perimetr, 2);
             return d;
         }
 
@@ -717,8 +730,25 @@ namespace McpSpds
             {
                 var m = grid.getAxisMethods(kind);
                 try { m.NamingMode = Chunk_naming_mode.Chunk_naming_mode_manual; } catch { }
-                for (uint i = 0; i < m.Count && i < names.Count; i++)
-                    try { m.setText(i, names[(int)i]); } catch { }
+                // The grid numbers its axes in its own order (measured: the
+                // horizontal ones from the top down), so names go by position:
+                // left to right, bottom to top.
+                var order = new List<(double pos, uint index)>();
+                for (uint i = 0; i < m.Count; i++)
+                {
+                    double pos = i;
+                    try
+                    {
+                        McBasicAxis.McAxisSpecificLinear lin = m.GetAxis(i);
+                        var p0 = lin.StartPoint;
+                        pos = kind == vKind ? p0.X : p0.Y;
+                    }
+                    catch { }
+                    order.Add((pos, i));
+                }
+                order.Sort((x, y) => x.pos.CompareTo(y.pos));
+                for (int k = 0; k < order.Count && k < names.Count; k++)
+                    try { m.setText(order[k].index, names[k]); } catch { }
                 if (a.TryGetProperty("dim_chain", out var dc)) m.DimChain = dc.GetBoolean();
                 if (a.TryGetProperty("dim_total", out var dt)) m.DimTotal = dt.GetBoolean();
                 if (a.TryGetProperty("markers_position", out var mp) && mp.ValueKind == JsonValueKind.String)

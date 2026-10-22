@@ -12520,6 +12520,7 @@ async def spds_room_create(
     text_x: Annotated[float | None, "Label position X; default the contour's centre"] = None,
     text_y: Annotated[float | None, "Label position Y"] = None,
     plain_area: Annotated[bool, "A plain area mark (Площадь) instead of a room"] = False,
+    labels: Annotated[bool, "Draw the name/area label and the number circle"] = True,
     props: Annotated[dict | None, "More parameters by name (category, group, height, label_flooring...)"] = None,
     scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
     layer: Annotated[str | None, "Layer"] = None,
@@ -12527,14 +12528,19 @@ async def spds_room_create(
 ) -> dict:
     """A nanoCAD СПДС room — number, name and the area nanoCAD computes from
     the contour given (nanoCAD's own contour search asks for a click and would
-    hold nanoCAD, so the contour is passed). Returns `handle`, `area_m2`,
-    `perimeter_m`. Pack: spds · lean: yes.
+    hold nanoCAD, so the contour is passed). The label (name and area) stands
+    at the text point and the number circle below it. Returns `handle`,
+    `area_m2`, `perimeter_m`. Pack: spds · lean: yes.
     """
     if len(points) < 3:
         raise ToolError("a room contour needs at least 3 points")
     if (text_x is None) != (text_y is None):
         raise ToolError("give both text_x and text_y, or neither")
-    args: dict = {"points": [_xy(p[0], p[1]) for p in points], "plain_area": bool(plain_area)}
+    args: dict = {
+        "points": [_xy(p[0], p[1]) for p in points],
+        "plain_area": bool(plain_area),
+        "labels": bool(labels),
+    }
     if number is not None:
         args["number"] = str(number)
     if name is not None:
