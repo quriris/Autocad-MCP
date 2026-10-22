@@ -12418,9 +12418,9 @@ async def spds_invoke(
     tags={"spds", "create"},
 )
 async def spds_axis_create(
-    start_x: Annotated[float, "Axis start X (the marker end)"],
+    start_x: Annotated[float, "Axis start X"],
     start_y: Annotated[float, "Axis start Y"],
-    end_x: Annotated[float, "Axis end X"],
+    end_x: Annotated[float, "Axis end X — the marker (bubble) is drawn at this end"],
     end_y: Annotated[float, "Axis end Y"],
     name: Annotated[str | None, "Marker text, e.g. '1' or 'А'"] = None,
     markers: Annotated[list[str] | None, "Several marker texts instead of one name"] = None,
@@ -12430,7 +12430,8 @@ async def spds_axis_create(
     ctx: Context = None,
 ) -> dict:
     """One nanoCAD СПДС axis — the real object, with its marker circle, not
-    lines and a circle. For a whole grid of axes use `spds_axis_grid_create`.
+    lines and a circle. The marker sits at the END point (measured, nanoCAD
+    24.1), so on a section run the axis from the ground down to the marker. For a whole grid of axes use `spds_axis_grid_create`.
     Pack: spds · lean: yes.
     """
     args: dict = {"start": _xy(start_x, start_y), "end": _xy(end_x, end_y)}
