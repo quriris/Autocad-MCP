@@ -6987,6 +6987,15 @@ class ComBackend(AutoCADBackend):
         from . import spds_bridge
 
         self._require_nanocad()
+        if path is None:
+            # Already answering (e.g. loaded at startup by APPLOAD): NETLOAD of
+            # the same assembly is a no-op that never re-runs Initialize, so the
+            # load marker would never appear and the load would read as failed.
+            try:
+                ping = await self.spds_call("ping", timeout=3.0)
+                return {"ok": True, "already_loaded": True, **(ping or {})}
+            except (RuntimeError, TimeoutError):
+                pass
         loaded = await self._run(lambda: spds_bridge.netload(_acad_doc(), path))
         marker = await asyncio.to_thread(spds_bridge.wait_loaded)
         if marker is None:

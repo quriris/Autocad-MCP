@@ -11993,6 +11993,11 @@ async def spds_format_create(
     organization: Annotated[str | None, "Stamp: организация (Enterprise)"] = None,
     stage: Annotated[str | None, "Stamp: стадия, e.g. ИД (Stage)"] = None,
     author: Annotated[str | None, "Stamp: Разраб. surname (Author)"] = None,
+    address_text_height: Annotated[
+        float | None,
+        "Text height of the address cell (ComplexName) in mm; nanoCAD's default is 3.5. "
+        "None leaves it as nanoCAD sets it",
+    ] = 2.5,
     props: Annotated[dict | None, "More parameters by name (see spds_get on a format)"] = None,
     ctx: Context = None,
 ) -> dict:
@@ -12002,7 +12007,9 @@ async def spds_format_create(
     The common stamp fields have their own arguments; every other field (Control, Add.text*, Add.subject*,
     Role1...) goes in `props` by the name `spds_get` shows. `scale` sets both
     the format's scale and DimScale; leave it out to take the drawing's current
-    scale (1:100 in the СПДС template). Returns the new `handle` and its
+    scale (1:100 in the СПДС template). The address cell is set to
+    `address_text_height` (2.5 mm by default; nanoCAD's own default is 3.5) the
+    way `spds_stamp_text_height` does it. Returns the new `handle` and its
     parameters. Pack: spds · lean: no.
     """
     size_u = size.strip().upper()
@@ -12047,6 +12054,10 @@ async def spds_format_create(
     merged = {**stamp, **(props or {})}
     if merged:
         args["props"] = merged
+    if address_text_height is not None:
+        if not 0 < address_text_height <= 20:
+            raise ToolError("address_text_height must be between 0 and 20 mm")
+        args["address_height"] = float(address_text_height)
     return await _spds(ctx, "format_create", args)
 
 

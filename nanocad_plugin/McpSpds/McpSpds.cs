@@ -73,7 +73,7 @@ namespace McpSpds
 
     public class Commands
     {
-        public const string PluginVersion = "0.2.6";
+        public const string PluginVersion = "0.2.7";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -379,6 +379,24 @@ namespace McpSpds
             Commit(f);
             var stamp = ApplyProps(f, a.TryGetProperty("props", out var p) ? p : default);
             Commit(f, stamp.Count > 0);
+            if (a.TryGetProperty("address_height", out var ah))
+            {
+                try
+                {
+                    var rebuilt = RebuildWithCellHeight(f, "ComplexName", ah.GetDouble(), out _, out double after);
+                    var d = Created(rebuilt);
+                    d["address_height"] = double.IsNaN(after) ? "unreadable" : after;
+                    return d;
+                }
+                catch (ArgumentException ex)
+                {
+                    // An empty address or a template without the cell: the
+                    // format itself is fine, so report rather than fail.
+                    var d = Created(f);
+                    d["address_height_skipped"] = ex.Message;
+                    return d;
+                }
+            }
             return Created(f);
         }
 
@@ -705,10 +723,27 @@ namespace McpSpds
             string handle = a.GetProperty("handle").GetString() ?? "";
             string field = Str(a, "field", "ComplexName");
             double height = a.GetProperty("height").GetDouble();
-            if (height <= 0 || height > 20)
-                throw new ArgumentException("height must be between 0 and 20 mm");
             var obj = Resolve(handle) as McEntity
                 ?? throw new ArgumentException("object " + handle + " is not a MultiCAD entity");
+            var rebuilt = RebuildWithCellHeight(obj, field, height, out double before, out double after);
+            return new Dictionary<string, object>
+            {
+                ["old_handle"] = handle,
+                ["handle"] = Hex(rebuilt.ID),
+                ["field"] = field,
+                ["height_before"] = before,
+                ["height_after"] = double.IsNaN(after) ? "unreadable" : after,
+            };
+        }
+
+        // Serialize, patch the cell's height, rebuild, erase the original only
+        // once the rebuilt object is in the drawing. Verified live on nanoCAD
+        // 24.1: the address cell went 3.5 -> 2.5 mm and nothing else changed.
+        static McEntity RebuildWithCellHeight(McEntity obj, string field, double height,
+            out double before, out double after)
+        {
+            if (height <= 0 || height > 20)
+                throw new ArgumentException("height must be between 0 and 20 mm");
             var prop = obj.DbObject.ObjectProperties.GetProperty(field)
                 ?? throw new ArgumentException("unknown field '" + field + "'");
             string value = Convert.ToString(prop.GetValue(), CultureInfo.InvariantCulture) ?? "";
@@ -716,10 +751,13 @@ namespace McpSpds
                 throw new ArgumentException("field '" + field + "' is empty; fill it first");
 
             byte[] bytes = obj.DbEntity.SerializeToBytes();
-            int at = FindCellHeight(bytes, value, out double old);
+            int at = FindCellHeight(bytes, value, out before);
             if (at < 0)
                 throw new ArgumentException("no cell record for '" + field + "' in this format "
                     + "(nanoCAD keeps one only for cells with their own text settings)");
+            after = before;
+            if (Math.Abs(before - height) < 1e-9)
+                return obj;
             Array.Copy(BitConverter.GetBytes(height), 0, bytes, at, 8);
 
             var copy = McDbEntity.DeserializeNewFromBytes(bytes)
@@ -728,18 +766,11 @@ namespace McpSpds
                 throw new InvalidOperationException("nanoCAD did not add the rebuilt format");
             var copyEnt = copy.Entity;
             Commit(copyEnt);
-            double now = double.NaN;
-            try { FindCellHeight(copyEnt.DbEntity.SerializeToBytes(), value, out now); } catch { }
+            after = double.NaN;
+            try { FindCellHeight(copyEnt.DbEntity.SerializeToBytes(), value, out after); } catch { }
             McObjectManager.Erase(obj.ID);
             McObjectManager.UpdateAll();
-            return new Dictionary<string, object>
-            {
-                ["old_handle"] = handle,
-                ["handle"] = Hex(copyEnt.ID),
-                ["field"] = field,
-                ["height_before"] = old,
-                ["height_after"] = double.IsNaN(now) ? "unreadable" : now,
-            };
+            return copyEnt;
         }
 
         static int FindCellHeight(byte[] bytes, string text, out double height)
