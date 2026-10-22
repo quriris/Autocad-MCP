@@ -73,7 +73,7 @@ namespace McpSpds
 
     public partial class Commands
     {
-        public const string PluginVersion = "0.3.0";
+        public const string PluginVersion = "0.3.1";
 
         internal static string Dir => Path.Combine(Path.GetTempPath(), "acadmcp-spds");
 
@@ -197,6 +197,8 @@ namespace McpSpds
                     return AxisCreate(a);
                 case "axis_grid_create":
                     return AxisGridCreate(a);
+                case "room_create":
+                    return RoomCreate(a);
                 default:
                     throw new ArgumentException("unknown op '" + op + "'");
             }

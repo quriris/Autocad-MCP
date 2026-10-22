@@ -158,6 +158,7 @@ def test_spds_tools_form_their_own_pack():
         "spds_invoke",
         "spds_axis_create",
         "spds_axis_grid_create",
+        "spds_room_create",
     }
 
 
@@ -273,3 +274,18 @@ async def test_native_class_scan_gets_a_long_timeout(sent):
 
     await _tool_fn(server.spds_native_classes)()
     assert sent[0][0] == "native_classes" and sent[0][2] >= 120
+
+
+@pytest.mark.asyncio
+async def test_room_sends_its_contour(sent):
+    import server
+
+    await _tool_fn(server.spds_room_create)(
+        points=[[0, 0], [5000, 0], [5000, 4000], [0, 4000]], number="2", name="Гараж",
+        text_x=2500, text_y=2000,
+    )
+    op, args, _ = sent[0]
+    assert op == "room_create"
+    assert args["points"][2] == [5000.0, 4000.0, 0.0]
+    assert args["number"] == "2" and args["name"] == "Гараж"
+    assert args["text"] == [2500.0, 2000.0, 0.0] and args["plain_area"] is False

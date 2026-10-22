@@ -1001,7 +1001,7 @@ LEAN_TOOL_NAMES = frozenset(
         # client draws formats, stamps, leaders, breaks and level marks, and
         # had no way to reach them (measured: TOOL_PROFILE=lean hid every
         # spds_* tool). `spds`-pack tools, so TOOL_PACKS=core hides them;
-        # lean is 84.
+        # lean is 85.
         "spds_status",
         "spds_plugin_load",
         "spds_list",
@@ -1021,6 +1021,7 @@ LEAN_TOOL_NAMES = frozenset(
         "spds_invoke",
         "spds_axis_create",
         "spds_axis_grid_create",
+        "spds_room_create",
     }
 )
 
@@ -1147,6 +1148,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "spds_invoke",
             "spds_axis_create",
             "spds_axis_grid_create",
+            "spds_room_create",
         }
     ),
 }
@@ -11782,7 +11784,7 @@ TIPS:
 """
 
 
-# ── SECTION 28: nanoCAD СПДС Objects (19 tools) ─────────────────────────────
+# ── SECTION 28: nanoCAD СПДС Objects (20 tools) ─────────────────────────────
 #
 # Formats with their stamp, leaders, breaks, level marks... are MultiCAD
 # objects: plain ActiveX sees them as anonymous entities and can neither read
@@ -12504,6 +12506,48 @@ async def spds_axis_grid_create(
     if layer:
         args["layer"] = str(layer)
     return await _spds(ctx, "axis_grid_create", args)
+
+
+@cad_tool(summary="Place a СПДС room (помещение) with its contour, number, name and area.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "СПДС: Room", "readOnlyHint": False, "destructiveHint": False},
+    tags={"spds", "create"},
+)
+async def spds_room_create(
+    points: Annotated[list[list[float]], "Room contour [[x, y], ...] — usually the inner faces of its walls"],
+    number: Annotated[str | None, "Room number, e.g. '1' or '1.03'"] = None,
+    name: Annotated[str | None, "Room name, e.g. 'Гостиная'"] = None,
+    text_x: Annotated[float | None, "Label position X; default the contour's centre"] = None,
+    text_y: Annotated[float | None, "Label position Y"] = None,
+    plain_area: Annotated[bool, "A plain area mark (Площадь) instead of a room"] = False,
+    props: Annotated[dict | None, "More parameters by name (category, group, height, label_flooring...)"] = None,
+    scale: Annotated[float | None, "Annotation scale (100 = 1:100); default the drawing's"] = None,
+    layer: Annotated[str | None, "Layer"] = None,
+    ctx: Context = None,
+) -> dict:
+    """A nanoCAD СПДС room — number, name and the area nanoCAD computes from
+    the contour given (nanoCAD's own contour search asks for a click and would
+    hold nanoCAD, so the contour is passed). Returns `handle`, `area_m2`,
+    `perimeter_m`. Pack: spds · lean: yes.
+    """
+    if len(points) < 3:
+        raise ToolError("a room contour needs at least 3 points")
+    if (text_x is None) != (text_y is None):
+        raise ToolError("give both text_x and text_y, or neither")
+    args: dict = {"points": [_xy(p[0], p[1]) for p in points], "plain_area": bool(plain_area)}
+    if number is not None:
+        args["number"] = str(number)
+    if name is not None:
+        args["name"] = str(name)
+    if text_x is not None:
+        args["text"] = _xy(text_x, text_y)
+    if props:
+        args["props"] = props
+    if scale is not None:
+        args["scale"] = float(scale)
+    if layer:
+        args["layer"] = str(layer)
+    return await _spds(ctx, "room_create", args)
 
 
 # ---------------------------------------------------------------------------

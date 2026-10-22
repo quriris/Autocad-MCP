@@ -19,7 +19,7 @@ Live through COM on Windows, or headless through ezdxf anywhere — one typed co
 
 </div>
 
-> **v1.6 release snapshot:** 266 tools · 8 resources · 5 prompt templates · 5050 collected tests.
+> **v1.6 release snapshot:** 267 tools · 8 resources · 5 prompt templates · 5051 collected tests.
 > 247 is the **registered** count; a default install advertises 242 over `tools/list`,
 > because `ENABLE_3D` is unset. `system_about` is the runtime authority.
 
@@ -370,7 +370,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 |---|---|---|
 | `AUTOCAD_MCP_BACKEND` | `auto` | `auto`, `com`, or `ezdxf` |
 | `CAD_PROGID` | `AutoCAD.Application` | COM ProgID the live backend attaches to |
-| `TOOL_PROFILE` | `full` | `lean` (84 curated tools, 55 with `TOOL_PACKS=core`) or `full` |
+| `TOOL_PROFILE` | `full` | `lean` (85 curated tools, 55 with `TOOL_PACKS=core`) or `full` |
 | `TOOL_PACKS` | `all` | Vertical packs to advertise: `core,pid,settings,mech,arch,plant` (`core` always on) |
 | `DISCOVERY_MODE` | `off` | `search` replaces the catalog with `search_tools` + `call_tool` |
 | `ENABLE_3D` | `false` | Expose the opt-in `solid_*` tools (COM) |

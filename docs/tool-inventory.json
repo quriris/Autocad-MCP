@@ -3,7 +3,7 @@
   "schema_version": 1,
   "package_version": "1.6.0",
   "totals": {
-    "tools": 266,
+    "tools": 267,
     "resources": 8,
     "prompts": 5,
     "groups": 29
@@ -30,7 +30,7 @@
     "premium": 12,
     "sheet": 11,
     "solids": 5,
-    "spds": 19,
+    "spds": 20,
     "styles": 10,
     "system": 7,
     "templates": 2,
@@ -3069,6 +3069,21 @@
       ],
       "annotations": {
         "title": "СПДС: Load Plugin",
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "spds_room_create",
+      "group": "spds",
+      "cost": "mutate",
+      "summary": "Place a СПДС room (помещение) with its contour, number, name and area.",
+      "tags": [
+        "create",
+        "spds"
+      ],
+      "annotations": {
+        "title": "СПДС: Room",
         "readOnlyHint": false,
         "destructiveHint": false
       }

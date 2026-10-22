@@ -304,13 +304,28 @@ namespace McpSpds
                     throw new ArgumentException("null before '" + raw + "' in '" + path + "'");
                 string name = raw;
                 int? index = null;
-                int br = raw.IndexOf('[');
+                int br = raw.IndexOf('[', Math.Max(0, raw.LastIndexOf(')')));
                 if (br >= 0)
                 {
                     name = raw.Substring(0, br);
                     index = int.Parse(raw.Substring(br + 1).TrimEnd(']'), CultureInfo.InvariantCulture);
                 }
-                if (name.Length > 0)
+                int par = name.IndexOf('(');
+                if (par >= 0)
+                {
+                    // name(a, b): a method call with literal arguments
+                    string inner = raw.Substring(raw.IndexOf('(') + 1, raw.LastIndexOf(')') - raw.IndexOf('(') - 1);
+                    name = name.Substring(0, par);
+                    var args = new List<JsonElement>();
+                    foreach (var part in inner.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        string json = double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+                            || part == "true" || part == "false" ? part : JsonSerializer.Serialize(part.Trim('"', '\''));
+                        args.Add(JsonDocument.Parse(json).RootElement.Clone());
+                    }
+                    cur = CallRaw(cur, name, args);
+                }
+                else if (name.Length > 0)
                     cur = GetMember(cur, name);
                 if (index != null)
                     cur = GetIndex(cur!, index.Value);
@@ -376,6 +391,16 @@ namespace McpSpds
 
         static object CallMethod(object target, string name, List<JsonElement> args)
         {
+            var raw = CallRaw(target, name, args, out var outs);
+            if (outs.Count == 0)
+                return Out(raw, 0);
+            return new Dictionary<string, object> { ["return"] = Out(raw, 0), ["out"] = outs };
+        }
+
+        static object? CallRaw(object target, string name, List<JsonElement> args) => CallRaw(target, name, args, out _);
+
+        static object? CallRaw(object target, string name, List<JsonElement> args, out List<object> outsResult)
+        {
             bool isType = target is Type;
             var t = isType ? (Type)target : target.GetType();
             var flags = isType ? BindingFlags.Public | BindingFlags.Static | BindingFlags.IgnoreCase : Inst;
@@ -404,13 +429,11 @@ namespace McpSpds
                 }
                 catch (Exception ex) { last = ex; continue; }
                 object? ret = m.Invoke(isType ? null : target, values);
-                var outs = new List<object>();
+                outsResult = new List<object>();
                 for (int i = 0; i < ps.Length; i++)
                     if (ps[i].ParameterType.IsByRef)
-                        outs.Add(Out(values[i], 0));
-                if (outs.Count == 0)
-                    return Out(ret, 0);
-                return new Dictionary<string, object> { ["return"] = Out(ret, 0), ["out"] = outs };
+                        outsResult.Add(Out(values[i], 0));
+                return ret;
             }
             throw new ArgumentException("no overload of " + t.Name + "." + name + " takes "
                 + args.Count + " argument(s)" + (last != null ? ": " + last.Message : "")
@@ -471,8 +494,28 @@ namespace McpSpds
                     return inst;
                 }
             }
+            // Anything else with a one-argument constructor that this JSON
+            // fits: Polyline3d from [[x, y], ...], LocationLoops from that.
+            if (ctorDepth < 3)
+            {
+                ctorDepth++;
+                try
+                {
+                    foreach (var c in u.GetConstructors())
+                    {
+                        var ps = c.GetParameters();
+                        if (ps.Length != 1 || ps[0].ParameterType == u)
+                            continue;
+                        try { return c.Invoke(new[] { ToNet(v, ps[0].ParameterType) }); }
+                        catch { }
+                    }
+                }
+                finally { ctorDepth--; }
+            }
             throw new ArgumentException("cannot make a " + TypeName(u) + " from " + v.ToString());
         }
+
+        [ThreadStatic] static int ctorDepth;
 
         static Point3d P3(JsonElement v)
         {
@@ -529,6 +572,48 @@ namespace McpSpds
                 try { d[p.Name] = Out(p.GetValue(v), depth + 1); } catch (Exception ex) { d[p.Name] = "!" + ex.GetType().Name; }
             }
             return d;
+        }
+
+        // -- rooms (помещения) -------------------------------------------------------
+
+        // McRoom.RebuildContour asks for a point on the command line and holds
+        // nanoCAD until someone clicks (measured, nanoCAD 24.1) — so the
+        // contour is handed over instead: a closed Polyline3d through `points`
+        // as the room's outer loop. Area and perimeter are nanoCAD's own.
+        static object RoomCreate(JsonElement a)
+        {
+            var pts = new List<Point3d>();
+            foreach (var p in a.GetProperty("points").EnumerateArray())
+                pts.Add(P(p));
+            if (pts.Count < 3)
+                throw new ArgumentException("a room contour needs at least 3 points");
+            if (pts[0].DistanceTo(pts[pts.Count - 1]) < 1e-6)
+                pts.RemoveAt(pts.Count - 1);
+            var pl = new Polyline3d(pts);
+            pl.SetClosed(true);
+
+            McSquare room = Bool(a, "plain_area", false) ? new McSquare() : new Multicad.Architecture.McRoom();
+            if (room is Multicad.Architecture.McRoom r)
+            {
+                r.Number = Str(a, "number", "");
+                r.Description = Str(a, "name", "");
+            }
+            room.TextPosition = a.TryGetProperty("text", out var t) ? P(t) : Centroid(pts);
+            if (!room.DbEntity.AddToCurrentDocument())
+                throw new InvalidOperationException("nanoCAD did not add the room");
+            room.Loops.Add(new LocationLoops(pl));
+            room.DbEntity.Update();
+            var d = Finish(room, a);
+            d["area_m2"] = Math.Round(room.Area / 1e6, 2);
+            d["perimeter_m"] = Math.Round(room.Perimetr / 1e3, 2);
+            return d;
+        }
+
+        static Point3d Centroid(List<Point3d> pts)
+        {
+            double x = 0, y = 0;
+            foreach (var p in pts) { x += p.X; y += p.Y; }
+            return new Point3d(x / pts.Count, y / pts.Count, 0);
         }
 
         // -- building axes ----------------------------------------------------------
@@ -595,25 +680,45 @@ namespace McpSpds
                 throw new InvalidOperationException("nanoCAD did not add the axis grid");
             var log = new List<object>();
             var pure = grid.getAxisMethods();
+            // Vertical axes: the grid takes them as its first direction
+            // (measured, nanoCAD 24.1: Add -> AxisGridKind_First, 3 of 3).
+            AxisGridKind vKind = AxisGridKind.AxisGridKind_First;
             for (int i = 0; i < xs.Count; i++)
             {
                 var ax = NewAxis(new Point3d(xs[i], y0, 0), new Point3d(xs[i], y1, 0), new List<string> { xNames[i] });
-                AxisGridKind kind;
-                bool ok = pure.Add(ax, true, out kind);
+                bool ok = pure.Add(ax, true, out AxisGridKind kind);
+                if (ok && i == 0) vKind = kind;
                 log.Add(new Dictionary<string, object> { ["axis"] = xNames[i], ["added"] = ok, ["kind"] = kind.ToString() });
             }
+            grid.DbEntity.Update();
+            // Horizontal axes: the same Add was refused for them (measured);
+            // add them to the other direction's own methods, and failing
+            // that let nanoCAD fit them (AddFuzzy).
+            var hKind = vKind == AxisGridKind.AxisGridKind_First ? AxisGridKind.AxisGridKind_Last : AxisGridKind.AxisGridKind_First;
+            var hm = grid.getAxisMethods(hKind);
             for (int i = 0; i < ys.Count; i++)
             {
                 var ax = NewAxis(new Point3d(x0, ys[i], 0), new Point3d(x1, ys[i], 0), new List<string> { yNames[i] });
-                AxisGridKind kind;
-                bool ok = pure.Add(ax, true, out kind);
-                log.Add(new Dictionary<string, object> { ["axis"] = yNames[i], ["added"] = ok, ["kind"] = kind.ToString() });
+                string how = "";
+                bool ok = false;
+                try { ok = hm.Add(ax, true); how = "kind"; } catch (Exception ex) { how = "kind!" + ex.Message; }
+                if (!ok)
+                {
+                    try { ok = pure.AddFuzzy(ax, true, out AxisGridKind fk); how += "; fuzzy " + fk; }
+                    catch (Exception ex) { how += "; fuzzy!" + ex.Message; }
+                }
+                if (!ok)
+                    McObjectManager.Erase(ax.ID);
+                log.Add(new Dictionary<string, object> { ["axis"] = yNames[i], ["added"] = ok, ["how"] = how });
             }
             grid.DbEntity.Update();
-            // texts by kind, after the grid has sorted its axes
-            foreach (var kind in new[] { AxisGridKind.AxisGridKind_X, AxisGridKind.AxisGridKind_Y })
+            // names and dimensions per direction
+            foreach (var (kind, names) in new[] { (vKind, xNames), (hKind, yNames) })
             {
                 var m = grid.getAxisMethods(kind);
+                try { m.NamingMode = Chunk_naming_mode.Chunk_naming_mode_manual; } catch { }
+                for (uint i = 0; i < m.Count && i < names.Count; i++)
+                    try { m.setText(i, names[(int)i]); } catch { }
                 if (a.TryGetProperty("dim_chain", out var dc)) m.DimChain = dc.GetBoolean();
                 if (a.TryGetProperty("dim_total", out var dt)) m.DimTotal = dt.GetBoolean();
                 if (a.TryGetProperty("markers_position", out var mp) && mp.ValueKind == JsonValueKind.String)
@@ -628,7 +733,7 @@ namespace McpSpds
         static object GridSummary(McEntitySpdsGrid grid)
         {
             var d = new Dictionary<string, object>();
-            foreach (var kind in new[] { AxisGridKind.AxisGridKind_X, AxisGridKind.AxisGridKind_Y })
+            foreach (var kind in new[] { AxisGridKind.AxisGridKind_First, AxisGridKind.AxisGridKind_Last })
             {
                 try
                 {

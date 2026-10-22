@@ -2711,6 +2711,15 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "шаг осей",
         ),
     ),
+    "spds_room_create": ToolAliases(
+        synonyms=(
+            "room label",
+            "room area",
+            "помещение",
+            "площадь помещения",
+            "экспликация помещений",
+        ),
+    ),
     "spds_axis_create": ToolAliases(
         synonyms=(
             "building axis",
